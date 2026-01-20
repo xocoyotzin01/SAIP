@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - Consulta Hacendaria</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f0f2f5; color: #333; }
+        .container { background: white; padding: 30px; border-radius: 8px; max-width: 800px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; margin-top: 0; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .step { margin-bottom: 25px; background: #f9f9f9; padding: 15px; border-radius: 6px; border-left: 4px solid #004d40; }
+        label { font-weight: bold; display: block; margin-bottom: 5px; color: #004d40; }
+        small { color: #666; display: block; margin-bottom: 10px; font-size: 0.85rem; }
+        
+        /* Botonera */
+        .actions { margin-top: 20px; display: flex; gap: 10px; }
+        
+        button { 
+            padding: 12px 24px; border: none; cursor: pointer; border-radius: 5px; 
+            font-size: 14px; font-weight: bold; text-transform: uppercase; transition: background 0.3s;
+        }
+        .btn-gen { background: #004d40; color: white; }
+        .btn-gen:hover { background: #00332a; }
+        
+        .btn-copy { background: #2980b9; color: white; }
+        .btn-copy:hover { background: #1f618d; }
+        
+        textarea { 
+            width: 100%; height: 250px; font-family: 'Consolas', monospace; font-size: 12px; 
+            margin-top: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 5px;
+            background: #2c3e50; color: #ecf0f1; box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🛠️ Generador de Base de Datos</h2>
+    
+    <div class="step">
+        <label>1. Cargar Base de Datos (Ingresos)</label>
+        <small>Estructura: Concepto | Nivel | 2024_Prog | 2024_Obs ...</small>
+        <input type="file" id="inputData" accept=".xlsx">
+    </div>
+
+    <div class="step">
+        <label>2. Cargar Deflactores (Inflación)</label>
+        <small>Estructura: Año | Indice (Ej: 2024 | 135.2)</small>
+        <input type="file" id="inputDeflactores" accept=".xlsx">
+    </div>
+
+    <div class="step">
+        <label>3. Cargar Base Contextual (Variables Macro)</label>
+        <small>Estructura: Año | petroleo_precio | tipo_cambio | tasa_interes ...</small>
+        <input type="file" id="inputContexto" accept=".xlsx">
+    </div>
+
+    <div class="actions">
+        <button onclick="generar()" class="btn-gen">⚡ Generar Código</button>
+        <button onclick="copiarCodigo()" class="btn-copy">📋 Copiar Resultado</button>
+    </div>
+
+    <textarea id="output" placeholder="El código generado aparecerá aquí..." readonly></textarea>
+</div>
+
+<script>
+    let datosFinales = [];
+    let deflactoresFinales = {};
+    let contextoFinal = {};
+
+    async function leerExcel(input) {
+        return new Promise((resolve, reject) => {
+            const file = input.files[0];
+            if (!file) return resolve(null);
+            const reader = new FileReader();
+            reader.onload = e => {
+                const data = new Uint8Array(e.target.result);
+                const wb = XLSX.read(data, {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1});
+                resolve(json);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    }
+
+    async function generar() {
+        // Leemos los 3 archivos
+        const rawData = await leerExcel(document.getElementById('inputData'));
+        const rawDef = await leerExcel(document.getElementById('inputDeflactores'));
+        const rawCtx = await leerExcel(document.getElementById('inputContexto'));
+
+        if (!rawData) return alert("⚠️ Error: Falta cargar el archivo principal de Base de Datos.");
+
+        // --- 1. PROCESAR DATOS PRINCIPALES ---
+        const headers = rawData[0];
+        const colMap = [];
+        headers.forEach((h, i) => {
+            if (typeof h === 'string' && h.includes('_')) {
+                const [anio, tipo] = h.split('_');
+                colMap.push({ idx: i, anio: parseInt(anio), tipo: tipo.toLowerCase() }); // prog o obs
+            }
+        });
+
+        datosFinales = rawData.slice(1).map((row, i) => {
+            if(!row[0]) return null;
+            let item = { id: i, concepto: row[0], nivel: row[1] || 1, datos: {} };
+            colMap.forEach(c => {
+                if(!item.datos[c.anio]) item.datos[c.anio] = { prog:0, obs:0 };
+                let val = row[c.idx];
+                item.datos[c.anio][c.tipo] = (typeof val === 'number') ? val : 0;
+            });
+            return item;
+        }).filter(x => x);
+
+        // --- 2. PROCESAR DEFLACTORES ---
+        if (rawDef) {
+            rawDef.slice(1).forEach(row => {
+                if(row[0] && row[1] !== undefined) {
+                    deflactoresFinales[row[0]] = parseFloat(row[1]);
+                }
+            });
+        }
+
+        // --- 3. PROCESAR CONTEXTO MACRO (NUEVO) ---
+        if (rawCtx) {
+            const ctxHeaders = rawCtx[0]; // Fila 1: Año, petroleo_precio, etc.
+            // Asumimos que la columna 0 es "Año"
+            rawCtx.slice(1).forEach(row => {
+                const anio = row[0];
+                if (anio) {
+                    contextoFinal[anio] = {};
+                    // Recorremos las columnas desde la 1 en adelante
+                    for (let k = 1; k < ctxHeaders.length; k++) {
+                        const keyName = ctxHeaders[k]; // El nombre exacto de la columna (ej: petroleo_precio)
+                        if (keyName) {
+                            contextoFinal[anio][keyName] = parseFloat(row[k]) || 0;
+                        }
+                    }
+                }
+            });
+        }
+
+        const fecha = new Date().toLocaleDateString();
+        const texto = `// Base generada el: ${fecha}\n` +
+                      `const datosHacendarios = ${JSON.stringify(datosFinales)};\n` +
+                      `const datosDeflactores = ${JSON.stringify(deflactoresFinales)};\n` +
+                      `const datosMacro = ${JSON.stringify(contextoFinal)};`; // Aquí agregamos la nueva base
+        
+        document.getElementById('output').value = texto;
+        alert("¡Código generado con ÉXITO! Incluyendo datos macroeconómicos.");
+    }
+
+    function copiarCodigo() {
+        const output = document.getElementById('output');
+        if (!output.value) return alert("⚠️ Primero debes generar el código.");
+        output.select();
+        output.setSelectionRange(0, 99999);
+        navigator.clipboard.writeText(output.value)
+            .then(() => alert("✅ ¡Copiado al portapapeles!"))
+            .catch(() => { document.execCommand('copy'); alert("✅ Copiado (Modo compatible)"); });
+    }
+</script>
+
+</body>
+</html>

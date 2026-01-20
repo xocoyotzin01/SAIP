@@ -1,0 +1,145 @@
+:root {
+    /* Paleta Institucional Refinada */
+    --primary: #0b231e;       /* Verde Hacienda Oscuro */
+    --primary-light: #184239; 
+    --gold: #d4c19c;          /* Dorado Institucional */
+    --bg: #f4f6f8;            /* Gris azulado muy suave */
+    --card: #ffffff;
+    --text: #2c3e50;
+    --text-light: #6c757d;
+    --border: #e9ecef;
+    
+    /* Indicadores */
+    --positive-bg: rgba(39, 174, 96, 0.1);
+    --positive-text: #218838;
+    --negative-bg: rgba(220, 53, 69, 0.1);
+    --negative-text: #c82333;
+}
+
+[data-theme="dark"] {
+    --primary: #004d40;
+    --bg: #121212;
+    --card: #1e1e1e;
+    --text: #e0e0e0;
+    --text-light: #adb5bd;
+    --border: #333;
+    --positive-bg: rgba(33, 136, 56, 0.3);
+    --positive-text: #4ade80;
+    --negative-bg: rgba(200, 35, 51, 0.3);
+    --negative-text: #f87171;
+}
+
+/* --- BASES --- */
+body { font-family: 'Inter', system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); padding-bottom: 50px; line-height: 1.5; }
+h1, h2, h3 { font-family: 'Montserrat', sans-serif; font-weight: 700; color: var(--primary); margin: 0 0 10px 0; }
+[data-theme="dark"] h1, [data-theme="dark"] h2, [data-theme="dark"] h3 { color: var(--gold); }
+.subtitle { color: var(--text-light); font-size: 0.9rem; margin-top: -5px; }
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+.hidden { display: none; }
+.mt-4 { margin-top: 2rem; }
+
+/* Navbar */
+.navbar { background: linear-gradient(90deg, var(--primary) 0%, #1a3c34 100%); color: white; padding: 15px 25px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.logo { font-weight: 600; font-size: 1.1rem; letter-spacing: 0.5px; display: flex; align-items: center; }
+#themeToggle { background: none; border: 1px solid rgba(255,255,255,0.2); color: var(--gold); padding: 5px 10px; border-radius: 20px; cursor: pointer; transition: all 0.3s; }
+
+/* Layout */
+.header-section { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+.dashboard-grid { display: grid; grid-template-columns: 2fr 1.5fr; gap: 20px; margin-bottom: 30px; }
+@media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+/* --- TARJETAS KPI (MODIFICADAS PARA DESPLEGABLE) --- */
+.kpi-section { display: flex; flex-direction: column; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+
+.kpi-card-pro { 
+    background: var(--card); 
+    border-radius: 12px; 
+    border: 2px solid transparent; 
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05); 
+    display: flex; flex-direction: column; 
+    transition: all 0.3s ease;
+    cursor: pointer;
+    overflow: hidden;
+    position: relative;
+}
+
+.kpi-card-pro:hover { transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+
+/* Estilos para el estado ACTIVO (Click) */
+.active-card {
+    border-color: var(--gold);
+    background-color: rgba(212, 193, 156, 0.05); /* Fondo dorado muy sutil */
+    box-shadow: 0 8px 25px rgba(212, 193, 156, 0.25);
+}
+
+.kpi-content-top { padding: 20px; } /* Contenido principal siempre visible */
+
+.kpi-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.kpi-title { font-size: 0.8rem; color: var(--text-light); font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 5px; }
+.kpi-badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+.kpi-badge.positive { background: var(--positive-bg); color: var(--positive-text); }
+.kpi-badge.negative { background: var(--negative-bg); color: var(--negative-text); }
+
+.kpi-main-value { font-size: 1.6rem; font-weight: 700; color: var(--text); font-family: 'Roboto Mono', monospace; letter-spacing: -0.5px; }
+.kpi-subtext { font-size: 0.8rem; color: var(--text-light); margin-top: 5px; }
+
+/* --- LISTA MACRO DESPLEGABLE (OCULTA POR DEFECTO) --- */
+.kpi-macro-list {
+    display: none; /* OCULTO INICIALMENTE */
+    background-color: rgba(0,0,0,0.02);
+    border-top: 1px solid var(--gold); /* Borde dorado al desplegar */
+    padding: 15px 20px;
+    font-size: 0.75rem;
+    animation: slideDown 0.3s ease-out forwards; /* Animación de entrada */
+}
+
+/* Solo se muestra cuando la tarjeta tiene la clase .active-card */
+.active-card .kpi-macro-list {
+    display: flex;
+    justify-content: space-between;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.macro-item { display: flex; flex-direction: column; align-items: flex-start; }
+.macro-label { color: var(--text-light); font-weight: 600; text-transform: uppercase; font-size: 0.65rem; margin-bottom: 3px; }
+.macro-val { color: var(--primary); font-weight: 700; font-family: 'Roboto Mono', monospace; font-size: 0.9rem; }
+[data-theme="dark"] .macro-val { color: var(--gold); }
+
+/* --- GRÁFICO --- */
+.chart-section { background: var(--card); border-radius: 12px; padding: 20px; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.05); height: 350px; display: flex; flex-direction: column; }
+.chart-container { flex: 1; position: relative; width: 100%; min-height: 0; }
+
+/* --- TABLAS --- */
+.card { background: var(--card); border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); padding: 25px; border: 1px solid var(--border); }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+.unit-badge { font-size: 0.75rem; background: var(--bg); padding: 4px 8px; border-radius: 4px; color: var(--text-light); }
+.table-responsive { overflow-x: auto; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.9rem; }
+th { background-color: var(--card); color: var(--text-light); font-weight: 700; text-transform: uppercase; font-size: 0.75rem; border-bottom: 2px solid var(--gold); padding: 15px 10px; text-align: right; white-space: nowrap; }
+th:first-child { text-align: left; padding-left: 15px; }
+td { padding: 10px 10px; border-bottom: 1px solid var(--border); text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+td:first-child { text-align: left; }
+.trend-up { color: var(--positive-text); background: var(--positive-bg); padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+.trend-down { color: var(--negative-text); background: var(--negative-bg); padding: 2px 6px; border-radius: 4px; font-weight: 600; font-size: 0.8rem; }
+
+/* Controles */
+.controls-panel { background: var(--card); padding: 20px; border-radius: 10px; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 15px; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+.search-group { flex-grow: 1; position: relative; }
+.search-group i { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-light); }
+.search-group input { width: 100%; padding: 10px 10px 10px 35px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg); color: var(--text); outline: none; }
+.btn-secondary, .btn-export { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; border: 1px solid var(--gold); background: white; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+.btn-export { background: #217346; color: white; border: none; margin-left: auto; }
+.btn-back { background: transparent; border: none; color: var(--text-light); cursor: pointer; display: flex; align-items: center; gap: 5px; font-size: 1rem; }
+
+/* Tabla Histórica Scroll */
+.table-container-scroll { overflow-x: auto; max-height: 65vh; border: 1px solid var(--border); border-radius: 8px; }
+.total-row td { background: var(--primary); color: white; font-weight: 700; }
+.toggle-switch { display: inline-flex; background: var(--bg); padding: 3px; border-radius: 6px; border: 1px solid var(--border); }
+.toggle-switch button { background: transparent; border: none; padding: 6px 15px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; color: var(--text-light); }
+.toggle-switch button.active { background: white; color: var(--primary); font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+[data-theme="dark"] .toggle-switch button.active { background: var(--primary); color: white; }
