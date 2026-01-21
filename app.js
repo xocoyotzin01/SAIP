@@ -362,4 +362,96 @@ function exportExcel() {
     const table = document.getElementById('main-table');
     const wb = XLSX.utils.table_to_book(table, {sheet: "Consulta"});
     XLSX.writeFile(wb, `Consulta_Hacendaria_${new Date().toISOString().slice(0,10)}.xlsx`);
+
+}
+
+
+/* ==========================================
+   MÓDULO DE ACCESIBILIDAD Y NAVEGACIÓN
+   ========================================== */
+
+document.addEventListener('DOMContentLoaded', () => {
+    initAccessibility();
+});
+
+function initAccessibility() {
+    // 1. CONTROL DE TAMAÑO DE TEXTO
+    let currentFontSize = 100; // Porcentaje base
+    const body = document.body;
+    
+    document.getElementById('btnIncreaseFont').addEventListener('click', () => {
+        if (currentFontSize < 130) { // Límite máximo
+            currentFontSize += 5;
+            body.style.fontSize = `${currentFontSize}%`;
+        }
+    });
+
+    document.getElementById('btnDecreaseFont').addEventListener('click', () => {
+        if (currentFontSize > 85) { // Límite mínimo
+            currentFontSize -= 5;
+            body.style.fontSize = `${currentFontSize}%`;
+        }
+    });
+
+    // 2. SISTEMA DE LECTURA DE VOZ (TTS)
+    const btnTTS = document.getElementById('btnTTS');
+    let isSpeaking = false;
+    let synth = window.speechSynthesis;
+    let utterance = null;
+
+    btnTTS.addEventListener('click', () => {
+        if (isSpeaking) {
+            // Si está hablando, callar
+            synth.cancel();
+            isSpeaking = false;
+            btnTTS.classList.remove('speaking-active');
+            btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
+        } else {
+            // Iniciar lectura
+            leerContenidoVisible();
+        }
+    });
+
+    function leerContenidoVisible() {
+        // Detener cualquier audio previo
+        synth.cancel();
+
+        // Detectar qué vista está activa (Dashboard o Histórico)
+        const dashboardView = document.getElementById('dashboard-view');
+        const historicoView = document.getElementById('historico-view');
+        let textoALeer = "";
+
+        if (!dashboardView.classList.contains('hidden')) {
+            textoALeer = "Estás en el Panorama General. " + limpiarTexto(dashboardView.innerText);
+        } else if (!historicoView.classList.contains('hidden')) {
+            textoALeer = "Estás en el Análisis Histórico. " + limpiarTexto(historicoView.innerText);
+        }
+
+        if (textoALeer) {
+            utterance = new SpeechSynthesisUtterance(textoALeer);
+            utterance.lang = 'es-MX'; // Español de México
+            utterance.rate = 1; // Velocidad normal
+            
+            // Eventos visuales
+            utterance.onstart = () => {
+                isSpeaking = true;
+                btnTTS.classList.add('speaking-active');
+                btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; // Cambiar icono a Stop
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                btnTTS.classList.remove('speaking-active');
+                btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
+            };
+
+            synth.speak(utterance);
+        }
+    }
+
+    // Función auxiliar para limpiar el texto de saltos de línea excesivos
+    function limpiarTexto(texto) {
+        // Reemplaza múltiples espacios y saltos de línea por un punto y coma para pausa natural
+        return texto.replace(/\s+/g, ' ').replace(/(\r\n|\n|\r)/gm, ". ");
+    }
 }
