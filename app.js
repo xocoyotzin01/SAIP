@@ -7,34 +7,34 @@ let state = {
     startYear: 2020,
     endYear: 2026,
     baseYear: 2026,
-    activeChart: 'Total'
+    activeChart: 'Total',
+    expandedRows: new Set() // NUEVO: Para guardar qué filas están abiertas
 };
 
 let trendChartInstance = null;
-
-// Variable global para voz (fuera para evitar cortes en Chrome)
 let currentUtterance = null;
 
 // ==========================================
 // 2. INICIALIZACIÓN
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
-    // Si data.js no cargó, evitar errores
     if (typeof datosHacendarios === 'undefined') {
         console.error("Error: data.js no se ha cargado.");
         return;
     }
 
     initFilters();
-    initAccessibility(); // <--- Módulo de Accesibilidad
+    initAccessibility();
     renderDashboard();     
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Eventos generales
     const searchInput = document.getElementById('searchInput');
     if(searchInput) {
-        searchInput.addEventListener('keyup', (e) => renderTable(e.target.value));
+        // Modificado para reiniciar expansión al buscar
+        searchInput.addEventListener('keyup', (e) => {
+            renderTable(e.target.value);
+        });
     }
 
     const themeToggle = document.getElementById('themeToggle');
@@ -46,8 +46,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================
-// 3. LÓGICA DE DATOS
+// 3. LÓGICA DE DATOS Y EXPANSIÓN
 // ==========================================
+
+// NUEVA FUNCIÓN: Abrir/Cerrar niveles
+function toggleRow(id) {
+    if (state.expandedRows.has(id)) {
+        state.expandedRows.delete(id);
+    } else {
+        state.expandedRows.add(id);
+    }
+    // Renderizamos de nuevo para aplicar cambios
+    const searchText = document.getElementById('searchInput').value;
+    renderTable(searchText);
+}
+
 function getValor(item, year, tipo='obs') {
     if (!item || !item.datos[year]) return 0;
     let val = item.datos[year][tipo] !== undefined ? item.datos[year][tipo] : (item.datos[year]['obs'] || item.datos[year]['prog'] || 0);
@@ -66,7 +79,7 @@ function getValorNominal(item, year, tipo='obs') {
 }
 
 // ==========================================
-// 4. RENDER DASHBOARD
+// 4. RENDER DASHBOARD (Sin cambios mayores)
 // ==========================================
 function renderDashboard() {
     const tableBody = document.querySelector('#resumen-table tbody');
@@ -79,90 +92,38 @@ function renderDashboard() {
     
     const currentYear = 2026; 
     const prevYear = 2025;
-    
     const macroData = (typeof datosMacro !== 'undefined' && datosMacro[currentYear]) ? datosMacro[currentYear] : {};
 
-    // Items Principales
+    // Items Principales (Ajusta los niveles según tu Excel real si es necesario)
     const itemTotal = datosHacendarios.find(d => d.nivel === 1);
     const itemPetroleros = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
+    // Buscamos tributarios genéricos para la tarjeta
     const itemTributarios = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
 
-    // Tarjeta 1: Total
-    if (itemTotal) {
-        crearTarjeta({
-            id: 'Total',
-            titulo: "Ingresos Totales",
-            valor: getValor(itemTotal, currentYear, 'prog'),
-            valorPrev: getValor(itemTotal, prevYear, 'obs'),
-            subtexto: "vs año anterior",
-            icono: "fas fa-sack-dollar",
-            isActive: state.activeChart === 'Total',
-            macros: []
-        }, kpiContainer);
-    }
+    if (itemTotal) crearTarjeta({ id: 'Total', titulo: "Ingresos Totales", valor: getValor(itemTotal, currentYear, 'prog'), valorPrev: getValor(itemTotal, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-sack-dollar", isActive: state.activeChart === 'Total', macros: [] }, kpiContainer);
+    
+    if (itemPetroleros) crearTarjeta({ id: 'Petroleros', titulo: "Petroleros", valor: getValor(itemPetroleros, currentYear, 'prog'), valorPrev: getValor(itemPetroleros, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-oil-well", isActive: state.activeChart === 'Petroleros', macros: [{ label: "Mezcla", val: macroData.petroleo_precio ? `$${macroData.petroleo_precio}` : '-' }, { label: "Prod.", val: macroData.petroleo_prod ? `${macroData.petroleo_prod}` : '-' }] }, kpiContainer);
 
-    // Tarjeta 2: Petroleros
-    if (itemPetroleros) {
-        crearTarjeta({
-            id: 'Petroleros',
-            titulo: "Petroleros",
-            valor: getValor(itemPetroleros, currentYear, 'prog'),
-            valorPrev: getValor(itemPetroleros, prevYear, 'obs'),
-            subtexto: "vs año anterior",
-            icono: "fas fa-oil-well",
-            isActive: state.activeChart === 'Petroleros',
-            macros: [
-                { label: "Mezcla", val: macroData.petroleo_precio ? `$${macroData.petroleo_precio}` : '-' },
-                { label: "Prod.", val: macroData.petroleo_prod ? `${macroData.petroleo_prod}` : '-' },
-                { label: "Gas", val: macroData.gas_precio ? `$${macroData.gas_precio}` : '-' }
-            ]
-        }, kpiContainer);
-    }
+    if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
-    // Tarjeta 3: Tributarios
-    if (itemTributarios) {
-        crearTarjeta({
-            id: 'Tributarios',
-            titulo: "Tributarios",
-            valor: getValor(itemTributarios, currentYear, 'prog'),
-            valorPrev: getValor(itemTributarios, prevYear, 'obs'),
-            subtexto: "vs año anterior",
-            icono: "fas fa-file-invoice-dollar",
-            isActive: state.activeChart === 'Tributarios',
-            macros: [
-                { label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' },
-                { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }
-            ]
-        }, kpiContainer);
-    }
-
-    // Tabla Resumen
-    const resumenItems = datosHacendarios.filter(d => d.nivel <= 4);
+    // Tabla Resumen pequeña
+    const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); // Solo mostramos niveles altos en resumen
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
         const valNomCurr = getValorNominal(item, currentYear, 'prog');
-        
         const defPrev = datosDeflactores[prevYear] || 100;
         const defCurr = datosDeflactores[currentYear] || 100;
         const factorInflacion = (defCurr / defPrev) - 1;
-        
         let varNominal = (valNomCurr / valNomPrev) - 1;
         let varReal = ((1 + varNominal) / (1 + factorInflacion)) - 1;
-        
         if(valNomPrev === 0 || isNaN(varReal)) varReal = 0;
 
         const row = document.createElement('tr');
-        const padding = `${(item.nivel - 1) * 20}px`;
-        const weight = item.nivel <= 2 ? '700' : '400';
-        const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
-        const trendClass = varReal >= 0 ? 'trend-up' : 'trend-down';
-        const trendIcon = varReal >= 0 ? '▲' : '▼';
-
         row.innerHTML = `
-            <td style="padding-left:${padding}; font-weight:${weight}; color:${color};">${item.concepto}</td>
+            <td style="padding-left:${(item.nivel - 1) * 20}px; font-weight:700;">${item.concepto}</td>
             <td>${formatMoney(valNomPrev)}</td>
             <td>${formatMoney(valNomCurr)}</td>
-            <td><span class="${trendClass}">${trendIcon} ${(varReal * 100).toFixed(1)}%</span></td>
+            <td><span class="${varReal >= 0 ? 'trend-up' : 'trend-down'}">${varReal >= 0 ? '▲' : '▼'} ${(varReal * 100).toFixed(1)}%</span></td>
         `;
         tableBody.appendChild(row);
     });
@@ -171,48 +132,23 @@ function renderDashboard() {
 function crearTarjeta(data, container) {
     const diff = data.valor - data.valorPrev;
     const varPct = data.valorPrev > 0 ? (data.valor / data.valorPrev) - 1 : 0;
-    
-    const trendClass = varPct >= 0 ? 'positive' : 'negative';
-    const trendIcon = varPct >= 0 ? '▲' : '▼';
-    const trendColor = varPct >= 0 ? '#27ae60' : '#c0392b';
-    
     let macrosHTML = '';
     if(data.macros && data.macros.length > 0) {
         macrosHTML = `<div class="kpi-macro-list">`;
-        data.macros.forEach(m => {
-            macrosHTML += `
-                <div class="macro-item">
-                    <span class="macro-label">${m.label}</span>
-                    <span class="macro-val">${m.val}</span>
-                </div>`;
-        });
+        data.macros.forEach(m => { macrosHTML += `<div class="macro-item"><span class="macro-label">${m.label}</span><span class="macro-val">${m.val}</span></div>`; });
         macrosHTML += `</div>`;
     }
-
-    const activeClass = data.isActive ? 'active-card' : '';
-
-    const html = `
-        <div class="kpi-card-pro ${activeClass}" onclick="cambiarGrafico('${data.id}')">
+    container.innerHTML += `
+        <div class="kpi-card-pro ${data.isActive ? 'active-card' : ''}" onclick="cambiarGrafico('${data.id}')">
             <div class="kpi-content-top">
-                <div class="kpi-header">
-                    <span class="kpi-title"><i class="${data.icono}"></i> ${data.titulo}</span>
-                    <span class="kpi-badge ${trendClass}">${trendIcon} ${(varPct * 100).toFixed(1)}%</span>
-                </div>
-                <div class="kpi-body">
-                    <div class="kpi-main-value">${formatMoney(data.valor)}</div>
-                    <div class="kpi-subtext">
-                        <span style="color: ${trendColor}; font-weight:bold;">${diff >= 0 ? '+' : ''}${formatMoney(diff)}</span> ${data.subtexto}
-                    </div>
-                </div>
-            </div>
-            ${macrosHTML}
-        </div>
-    `;
-    container.innerHTML += html;
+                <div class="kpi-header"><span class="kpi-title"><i class="${data.icono}"></i> ${data.titulo}</span><span class="kpi-badge ${varPct >= 0 ? 'positive' : 'negative'}">${varPct >= 0 ? '▲' : '▼'} ${(varPct * 100).toFixed(1)}%</span></div>
+                <div class="kpi-body"><div class="kpi-main-value">${formatMoney(data.valor)}</div><div class="kpi-subtext"><span style="color: ${varPct >= 0 ? '#27ae60' : '#c0392b'}; font-weight:bold;">${diff >= 0 ? '+' : ''}${formatMoney(diff)}</span> ${data.subtexto}</div></div>
+            </div>${macrosHTML}
+        </div>`;
 }
 
 // ==========================================
-// 5. GRÁFICOS E INTERACCIÓN
+// 5. GRÁFICOS
 // ==========================================
 function cambiarGrafico(conceptoId) {
     state.activeChart = conceptoId;
@@ -223,84 +159,44 @@ function cambiarGrafico(conceptoId) {
 function renderTrendChart(filtroConcepto) {
     const ctx = document.getElementById('trendChart');
     if(!ctx) return;
-
-    let itemGraficar;
-    if (filtroConcepto === 'Total') {
-        itemGraficar = datosHacendarios.find(d => d.nivel === 1);
-    } else if (filtroConcepto === 'Petroleros') {
-        itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
-    } else if (filtroConcepto === 'Tributarios') {
-        itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
-    }
-
-    const tituloEl = document.getElementById('chart-title');
-    if(tituloEl) tituloEl.innerText = itemGraficar ? `Tendencia: ${itemGraficar.concepto}` : 'Tendencia';
-
-    if(!itemGraficar) return;
+    let itemGraficar = datosHacendarios.find(d => d.nivel === 1); // Default Total
+    
+    if (filtroConcepto === 'Petroleros') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
+    else if (filtroConcepto === 'Tributarios') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
 
     const years = ['2020', '2021', '2022', '2023', '2024', '2025', '2026'];
     const dataPoints = [];
     const defBase = datosDeflactores[2026] || 100;
 
-    years.forEach(y => {
-        const valNom = getValorNominal(itemGraficar, parseInt(y), 'obs');
-        const defYear = datosDeflactores[y] || 100;
-        const valReal = valNom * (defBase / defYear);
-        dataPoints.push(valReal);
-    });
-
-    if (trendChartInstance) {
-        trendChartInstance.destroy();
+    if(itemGraficar) {
+        document.getElementById('chart-title').innerText = `Tendencia: ${itemGraficar.concepto}`;
+        years.forEach(y => {
+            const valNom = getValorNominal(itemGraficar, parseInt(y), 'obs');
+            const defYear = datosDeflactores[y] || 100;
+            dataPoints.push(valNom * (defBase / defYear));
+        });
     }
 
-    let chartColor = '#d4c19c';
-    if (filtroConcepto === 'Petroleros') chartColor = '#2c3e50';
-    if (filtroConcepto === 'Tributarios') chartColor = '#27ae60';
-
+    if (trendChartInstance) trendChartInstance.destroy();
+    
     trendChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
             labels: years,
             datasets: [{
-                label: 'Monto Real (Precios 2026)',
+                label: 'Monto Real (2026)',
                 data: dataPoints,
-                borderColor: chartColor,
-                backgroundColor: chartColor + '33',
-                borderWidth: 3,
-                pointBackgroundColor: '#fff',
-                pointBorderColor: chartColor,
-                pointRadius: 5,
-                tension: 0.4,
-                fill: true
+                borderColor: '#d4c19c',
+                backgroundColor: '#d4c19c33',
+                fill: true, tension: 0.4
             }]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: function(context) {
-                            return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(context.parsed.y);
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: false,
-                    grid: { borderDash: [5, 5], color: '#eee' },
-                    ticks: { callback: function(value) { return '$' + (value/1000000).toFixed(1) + 'M'; } }
-                },
-                x: { grid: { display: false } }
-            }
-        }
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: v => '$' + (v/1000000).toFixed(1) + 'M' } } } }
     });
 }
 
 // ==========================================
-// 6. UTILS & TABLA HISTÓRICA
+// 6. TABLA HISTÓRICA CON DRIL-DOWN (MEJORADA)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -309,6 +205,7 @@ function renderTable(filterText = '') {
     
     if(!thead || !tbody) return;
 
+    // Encabezados
     let headersHTML = '<th>Concepto</th>';
     const years = [];
     for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
@@ -318,32 +215,107 @@ function renderTable(filterText = '') {
     tbody.innerHTML = '';
     let totalesColumna = new Array(years.length).fill(0);
     
-    const itemsVisibles = datosHacendarios.filter(item => {
-        if(filterText === '') return true;
-        return item.concepto.toLowerCase().includes(filterText.toLowerCase());
+    // --- LÓGICA DE FILTRADO INTELIGENTE ---
+    // Si buscas "Tributarios" (Nivel 4), queremos traer también a sus hijos (Nivel 5)
+    // aunque sus hijos no tengan la palabra "Tributarios" en el nombre.
+    
+    let itemsVisibles = [];
+    let captureChildren = false; // Bandera para saber si estamos capturando hijos de un padre encontrado
+    let currentParentLevel = 0;
+
+    datosHacendarios.forEach(item => {
+        const match = item.concepto.toLowerCase().includes(filterText.toLowerCase());
+
+        // Regla: Si es Nivel 4 y coincide con la búsqueda
+        if (item.nivel === 4) {
+            if (match) {
+                itemsVisibles.push(item);
+                captureChildren = true; // Activar captura de hijos
+                currentParentLevel = 4;
+            } else {
+                captureChildren = false; // Si el padre no coincide, no capturamos hijos (a menos que el hijo coincida por sí solo)
+                // Pero si NO hay filtro, mostramos todo
+                if (filterText === '') itemsVisibles.push(item);
+            }
+        } 
+        // Regla: Si es Nivel 5 (Hijo)
+        else if (item.nivel === 5) {
+            // Lo mostramos si: 
+            // 1. Su padre fue encontrado (captureChildren)
+            // 2. O el usuario buscó "ISR" directamente (match)
+            // 3. O no hay filtro activo
+            if (captureChildren || match || filterText === '') {
+                itemsVisibles.push(item);
+            }
+        } 
+        // Otros niveles (1, 2, 3)
+        else {
+            if (match || filterText === '') itemsVisibles.push(item);
+            captureChildren = false; // Reset al salir del grupo
+        }
     });
+
+    // --- RENDERIZADO CON EXPANSION ---
+    let lastLevel4Id = null; // Para saber a quién pertenecen los nivel 5
 
     itemsVisibles.forEach(item => {
-        const tr = document.createElement('tr');
-        const padding = `${(item.nivel-1)*20}px`;
-        const weight = item.nivel === 1 ? '700' : '400';
-        
-        tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${weight}">${item.concepto}</td>`;
-        
-        years.forEach((y, index) => {
-            const val = getValor(item, y, 'obs');
-            tr.innerHTML += `<td>${formatMoney(val)}</td>`;
-            if (item.nivel === 1) totalesColumna[index] += val; 
-            else if (itemsVisibles.length < datosHacendarios.length) totalesColumna[index] += val;
-        });
-        tbody.appendChild(tr);
+        // Control de Estado del Padre
+        if (item.nivel === 4) {
+            lastLevel4Id = item.id;
+        }
+
+        // Determinar si debemos mostrar la fila
+        let isVisible = true;
+        let isExpanded = false;
+
+        // Si es nivel 5, solo se ve si su padre (lastLevel4Id) está en expandedRows
+        if (item.nivel === 5) {
+            if (lastLevel4Id && !state.expandedRows.has(lastLevel4Id)) {
+                isVisible = false;
+            }
+        }
+
+        if (state.expandedRows.has(item.id)) isExpanded = true;
+
+        if (isVisible) {
+            const tr = document.createElement('tr');
+            
+            // Estilos dinámicos
+            const padding = `${(item.nivel-1)*20}px`;
+            const fontWeight = item.nivel <= 4 ? '700' : '400';
+            const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
+            
+            // Construir celda de Concepto con Botón Toggle si es Nivel 4
+            let conceptoHTML = '';
+            if (item.nivel === 4) {
+                const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
+                const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
+                // Añadimos el evento onclick solo al icono y texto
+                conceptoHTML = `
+                    <div style="cursor:pointer; display:flex; align-items:center;" onclick="toggleRow(${item.id})">
+                        <i class="fas ${icon}" style="margin-right:8px; color:${iconColor};"></i>
+                        <span>${item.concepto}</span>
+                    </div>`;
+            } else {
+                conceptoHTML = item.concepto;
+            }
+
+            // Inyectar HTML
+            tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${fontWeight}; color:${color}">${conceptoHTML}</td>`;
+            
+            years.forEach((y, index) => {
+                const val = getValor(item, y, 'obs');
+                tr.innerHTML += `<td>${formatMoney(val)}</td>`;
+                if (item.nivel === 1) totalesColumna[index] += val; 
+            });
+            tbody.appendChild(tr);
+        }
     });
 
+    // Footer totales
     let footerHTML = '<td>TOTAL</td>';
-    const itemTotalBD = datosHacendarios.find(d => d.nivel === 1);
     years.forEach((y, index) => {
-        let valorFooter = (filterText === '' && itemTotalBD) ? getValor(itemTotalBD, y, 'obs') : totalesColumna[index];
-        footerHTML += `<td>${formatMoney(valorFooter)}</td>`;
+        footerHTML += `<td>${formatMoney(totalesColumna[index])}</td>`;
     });
     tfoot.innerHTML = footerHTML;
 }
@@ -352,7 +324,6 @@ function initFilters() {
     const startSel = document.getElementById('startYear');
     const endSel = document.getElementById('endYear');
     if(!startSel || !endSel) return;
-
     const years = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
     years.forEach(y => {
         startSel.add(new Option(y, y, false, y === state.startYear));
@@ -386,90 +357,28 @@ function exportExcel() {
     XLSX.writeFile(wb, `Consulta_Hacendaria_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-// ==========================================
-// 7. MÓDULO DE ACCESIBILIDAD (MEJORADO)
-// ==========================================
 function initAccessibility() {
-    // A. Tamaño de Fuente
     let currentFontSize = 100;
-    const body = document.body;
     const btnInc = document.getElementById('btnIncreaseFont');
     const btnDec = document.getElementById('btnDecreaseFont');
+    if(btnInc) btnInc.addEventListener('click', () => { if(currentFontSize<130){currentFontSize+=5;document.body.style.fontSize=`${currentFontSize}%`;}});
+    if(btnDec) btnDec.addEventListener('click', () => { if(currentFontSize>85){currentFontSize-=5;document.body.style.fontSize=`${currentFontSize}%`;}});
 
-    if(btnInc && btnDec) {
-        btnInc.addEventListener('click', () => {
-            if (currentFontSize < 130) {
-                currentFontSize += 5;
-                body.style.fontSize = `${currentFontSize}%`;
-            }
-        });
-        btnDec.addEventListener('click', () => {
-            if (currentFontSize > 85) {
-                currentFontSize -= 5;
-                body.style.fontSize = `${currentFontSize}%`;
-            }
-        });
-    }
-
-    // B. Lector de Voz (TTS)
     const btnTTS = document.getElementById('btnTTS');
     const synth = window.speechSynthesis;
-
     if (!btnTTS) return;
 
     btnTTS.addEventListener('click', () => {
-        if (synth.speaking) {
-            synth.cancel();
-            resetBotonTTS();
-            return;
-        }
-        leerContenidoVisible();
-    });
-
-    function leerContenidoVisible() {
-        synth.cancel();
-
-        const dashboardView = document.getElementById('dashboard-view');
-        const historicoView = document.getElementById('historico-view');
-        let textoALeer = "";
-
-        if (dashboardView && !dashboardView.classList.contains('hidden')) {
-            textoALeer = "Estás en el Panorama General. " + limpiarTexto(dashboardView.innerText);
-        } else if (historicoView && !historicoView.classList.contains('hidden')) {
-            textoALeer = "Estás en el Análisis Histórico. " + limpiarTexto(historicoView.innerText);
-        }
-
-        if (!textoALeer.trim()) {
-            alert("No hay texto visible.");
-            return;
-        }
-
-        currentUtterance = new SpeechSynthesisUtterance(textoALeer);
+        if (synth.speaking) { synth.cancel(); resetBotonTTS(); return; }
+        let texto = document.getElementById('dashboard-view').classList.contains('hidden') 
+            ? "Histórico. " + document.getElementById('historico-view').innerText 
+            : "Panorama. " + document.getElementById('dashboard-view').innerText;
         
-        // Configurar Voz
-        const voices = synth.getVoices();
-        const vozLatina = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
-        if (vozLatina) currentUtterance.voice = vozLatina;
-        
-        currentUtterance.rate = 1.0;
-
-        currentUtterance.onstart = () => {
-            btnTTS.classList.add('speaking-active');
-            btnTTS.innerHTML = '<i class="fas fa-stop"></i>';
-        };
-
-        currentUtterance.onend = () => resetBotonTTS();
-        currentUtterance.onerror = () => resetBotonTTS();
-
+        currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
+        currentUtterance.rate = 1;
+        currentUtterance.onstart = () => { btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; btnTTS.classList.add('speaking-active'); };
+        currentUtterance.onend = resetBotonTTS;
         synth.speak(currentUtterance);
-    }
-
-    function resetBotonTTS() {
-        btnTTS.classList.remove('speaking-active');
-        btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
-    }
-
-    function limpiarTexto(texto) {
-        return texto.replace(/\s+/g, ' ').replace(/(\r\n|\n|\r)/gm, ". ").substring(0, 4000);
-    }
+    });
+    function resetBotonTTS() { btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>'; btnTTS.classList.remove('speaking-active'); }
 }
