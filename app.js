@@ -1,32 +1,55 @@
-// Configuración Global
+// ==========================================
+// 1. CONFIGURACIÓN GLOBAL
+// ==========================================
 let state = {
     view: 'dashboard',
     mode: 'nominal',
     startYear: 2020,
     endYear: 2026,
     baseYear: 2026,
-    activeChart: 'Total' // Controla qué gráfico se ve
+    activeChart: 'Total'
 };
 
 let trendChartInstance = null;
 
-// Inicialización
+// Variable global para voz (fuera para evitar cortes en Chrome)
+let currentUtterance = null;
+
+// ==========================================
+// 2. INICIALIZACIÓN
+// ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Si data.js no cargó, evitar errores
+    if (typeof datosHacendarios === 'undefined') {
+        console.error("Error: data.js no se ha cargado.");
+        return;
+    }
+
     initFilters();
+    initAccessibility(); // <--- Módulo de Accesibilidad
     renderDashboard();     
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    document.getElementById('searchInput').addEventListener('keyup', (e) => renderTable(e.target.value));
-    document.getElementById('themeToggle').addEventListener('click', () => {
-        document.body.dataset.theme = document.body.dataset.theme === 'dark' ? '' : 'dark';
-    });
+    // Eventos generales
+    const searchInput = document.getElementById('searchInput');
+    if(searchInput) {
+        searchInput.addEventListener('keyup', (e) => renderTable(e.target.value));
+    }
+
+    const themeToggle = document.getElementById('themeToggle');
+    if(themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            document.body.dataset.theme = document.body.dataset.theme === 'dark' ? '' : 'dark';
+        });
+    }
 });
 
-// --- LÓGICA DE DATOS ---
+// ==========================================
+// 3. LÓGICA DE DATOS
+// ==========================================
 function getValor(item, year, tipo='obs') {
     if (!item || !item.datos[year]) return 0;
-    // Prioridad: Tipo específico > Obs > Prog > 0
     let val = item.datos[year][tipo] !== undefined ? item.datos[year][tipo] : (item.datos[year]['obs'] || item.datos[year]['prog'] || 0);
     
     if (state.mode === 'real') {
@@ -42,53 +65,52 @@ function getValorNominal(item, year, tipo='obs') {
     return item.datos[year][tipo] !== undefined ? item.datos[year][tipo] : (item.datos[year]['obs'] || item.datos[year]['prog'] || 0);
 }
 
-// --- RENDER DASHBOARD (Tarjetas Interactivas y Tabla) ---
+// ==========================================
+// 4. RENDER DASHBOARD
+// ==========================================
 function renderDashboard() {
     const tableBody = document.querySelector('#resumen-table tbody');
     const kpiContainer = document.getElementById('kpi-container');
+    
+    if(!tableBody || !kpiContainer) return;
+
     tableBody.innerHTML = '';
     kpiContainer.innerHTML = ''; 
     
     const currentYear = 2026; 
     const prevYear = 2025;
     
-    // Validación anti-crash: Si no has cargado la base macro aun, usamos objeto vacío
     const macroData = (typeof datosMacro !== 'undefined' && datosMacro[currentYear]) ? datosMacro[currentYear] : {};
 
-    // 1. Obtener Items Principales
+    // Items Principales
     const itemTotal = datosHacendarios.find(d => d.nivel === 1);
     const itemPetroleros = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
     const itemTributarios = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
 
-    // --- TARJETA 1: TOTAL ---
+    // Tarjeta 1: Total
     if (itemTotal) {
-        const totalCurr = getValor(itemTotal, currentYear, 'prog');
-        const totalPrev = getValor(itemTotal, prevYear, 'obs');
         crearTarjeta({
             id: 'Total',
             titulo: "Ingresos Totales",
-            valor: totalCurr,
-            valorPrev: totalPrev,
+            valor: getValor(itemTotal, currentYear, 'prog'),
+            valorPrev: getValor(itemTotal, prevYear, 'obs'),
             subtexto: "vs año anterior",
             icono: "fas fa-sack-dollar",
             isActive: state.activeChart === 'Total',
-            macros: [] // El total no suele llevar detalle macro específico
+            macros: []
         }, kpiContainer);
     }
 
-    // --- TARJETA 2: PETROLEROS ---
+    // Tarjeta 2: Petroleros
     if (itemPetroleros) {
-        const petroCurr = getValor(itemPetroleros, currentYear, 'prog');
-        const petroPrev = getValor(itemPetroleros, prevYear, 'obs');
         crearTarjeta({
             id: 'Petroleros',
             titulo: "Petroleros",
-            valor: petroCurr,
-            valorPrev: petroPrev,
+            valor: getValor(itemPetroleros, currentYear, 'prog'),
+            valorPrev: getValor(itemPetroleros, prevYear, 'obs'),
             subtexto: "vs año anterior",
             icono: "fas fa-oil-well",
             isActive: state.activeChart === 'Petroleros',
-            // DATOS MACRO INTEGRADOS AQUÍ
             macros: [
                 { label: "Mezcla", val: macroData.petroleo_precio ? `$${macroData.petroleo_precio}` : '-' },
                 { label: "Prod.", val: macroData.petroleo_prod ? `${macroData.petroleo_prod}` : '-' },
@@ -97,19 +119,16 @@ function renderDashboard() {
         }, kpiContainer);
     }
 
-    // --- TARJETA 3: TRIBUTARIOS ---
+    // Tarjeta 3: Tributarios
     if (itemTributarios) {
-        const tribCurr = getValor(itemTributarios, currentYear, 'prog');
-        const tribPrev = getValor(itemTributarios, prevYear, 'obs');
         crearTarjeta({
             id: 'Tributarios',
             titulo: "Tributarios",
-            valor: tribCurr,
-            valorPrev: tribPrev,
+            valor: getValor(itemTributarios, currentYear, 'prog'),
+            valorPrev: getValor(itemTributarios, prevYear, 'obs'),
             subtexto: "vs año anterior",
             icono: "fas fa-file-invoice-dollar",
             isActive: state.activeChart === 'Tributarios',
-            // DATOS MACRO INTEGRADOS AQUÍ
             macros: [
                 { label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' },
                 { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }
@@ -117,13 +136,12 @@ function renderDashboard() {
         }, kpiContainer);
     }
 
-    // 2. TABLA RESUMEN (Nivel <= 4)
+    // Tabla Resumen
     const resumenItems = datosHacendarios.filter(d => d.nivel <= 4);
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
         const valNomCurr = getValorNominal(item, currentYear, 'prog');
         
-        // Calculo Variación Real para la columna %
         const defPrev = datosDeflactores[prevYear] || 100;
         const defCurr = datosDeflactores[currentYear] || 100;
         const factorInflacion = (defCurr / defPrev) - 1;
@@ -150,7 +168,6 @@ function renderDashboard() {
     });
 }
 
-// --- CREAR TARJETA (HELPER) ---
 function crearTarjeta(data, container) {
     const diff = data.valor - data.valorPrev;
     const varPct = data.valorPrev > 0 ? (data.valor / data.valorPrev) - 1 : 0;
@@ -159,7 +176,6 @@ function crearTarjeta(data, container) {
     const trendIcon = varPct >= 0 ? '▲' : '▼';
     const trendColor = varPct >= 0 ? '#27ae60' : '#c0392b';
     
-    // HTML Mini Tabla Macro
     let macrosHTML = '';
     if(data.macros && data.macros.length > 0) {
         macrosHTML = `<div class="kpi-macro-list">`;
@@ -195,14 +211,15 @@ function crearTarjeta(data, container) {
     container.innerHTML += html;
 }
 
-// --- INTERACCIÓN CLICK ---
+// ==========================================
+// 5. GRÁFICOS E INTERACCIÓN
+// ==========================================
 function cambiarGrafico(conceptoId) {
     state.activeChart = conceptoId;
-    renderDashboard(); // Actualiza bordes de tarjetas
-    renderTrendChart(conceptoId); // Actualiza gráfico
+    renderDashboard();
+    renderTrendChart(conceptoId);
 }
 
-// --- RENDER GRÁFICO DINÁMICO (REAL 2026) ---
 function renderTrendChart(filtroConcepto) {
     const ctx = document.getElementById('trendChart');
     if(!ctx) return;
@@ -228,7 +245,7 @@ function renderTrendChart(filtroConcepto) {
     years.forEach(y => {
         const valNom = getValorNominal(itemGraficar, parseInt(y), 'obs');
         const defYear = datosDeflactores[y] || 100;
-        const valReal = valNom * (defBase / defYear); // Conversión a pesos constantes 2026
+        const valReal = valNom * (defBase / defYear);
         dataPoints.push(valReal);
     });
 
@@ -236,10 +253,9 @@ function renderTrendChart(filtroConcepto) {
         trendChartInstance.destroy();
     }
 
-    // Color según tema
-    let chartColor = '#d4c19c'; // Dorado
-    if (filtroConcepto === 'Petroleros') chartColor = '#2c3e50'; // Negro/Azul
-    if (filtroConcepto === 'Tributarios') chartColor = '#27ae60'; // Verde
+    let chartColor = '#d4c19c';
+    if (filtroConcepto === 'Petroleros') chartColor = '#2c3e50';
+    if (filtroConcepto === 'Tributarios') chartColor = '#27ae60';
 
     trendChartInstance = new Chart(ctx, {
         type: 'line',
@@ -249,7 +265,7 @@ function renderTrendChart(filtroConcepto) {
                 label: 'Monto Real (Precios 2026)',
                 data: dataPoints,
                 borderColor: chartColor,
-                backgroundColor: chartColor + '33', // Transparencia
+                backgroundColor: chartColor + '33',
                 borderWidth: 3,
                 pointBackgroundColor: '#fff',
                 pointBorderColor: chartColor,
@@ -283,12 +299,16 @@ function renderTrendChart(filtroConcepto) {
     });
 }
 
-// --- UTILS (TABLA HISTÓRICA) ---
+// ==========================================
+// 6. UTILS & TABLA HISTÓRICA
+// ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
     const tbody = document.getElementById('table-body');
     const tfoot = document.getElementById('table-footer');
     
+    if(!thead || !tbody) return;
+
     let headersHTML = '<th>Concepto</th>';
     const years = [];
     for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
@@ -331,6 +351,8 @@ function renderTable(filterText = '') {
 function initFilters() {
     const startSel = document.getElementById('startYear');
     const endSel = document.getElementById('endYear');
+    if(!startSel || !endSel) return;
+
     const years = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
     years.forEach(y => {
         startSel.add(new Option(y, y, false, y === state.startYear));
@@ -362,32 +384,18 @@ function exportExcel() {
     const table = document.getElementById('main-table');
     const wb = XLSX.utils.table_to_book(table, {sheet: "Consulta"});
     XLSX.writeFile(wb, `Consulta_Hacendaria_${new Date().toISOString().slice(0,10)}.xlsx`);
-
 }
 
-
-/* ==========================================
-   MÓDULO DE ACCESIBILIDAD Y NAVEGACIÓN
-   ========================================== */
-
-document.addEventListener('DOMContentLoaded', () => {
-    initAccessibility();
-});
-
-// --- CORRECCIÓN EN APP.JS ---
-
-// Variable global fuera de la función para evitar que Chrome corte el audio
-let currentUtterance = null;
-
+// ==========================================
+// 7. MÓDULO DE ACCESIBILIDAD (MEJORADO)
+// ==========================================
 function initAccessibility() {
-    // 1. CONTROL DE TAMAÑO DE TEXTO
+    // A. Tamaño de Fuente
     let currentFontSize = 100;
     const body = document.body;
-    
-    // Aseguramos que existan los elementos antes de agregar eventos
     const btnInc = document.getElementById('btnIncreaseFont');
     const btnDec = document.getElementById('btnDecreaseFont');
-    
+
     if(btnInc && btnDec) {
         btnInc.addEventListener('click', () => {
             if (currentFontSize < 130) {
@@ -395,7 +403,6 @@ function initAccessibility() {
                 body.style.fontSize = `${currentFontSize}%`;
             }
         });
-
         btnDec.addEventListener('click', () => {
             if (currentFontSize > 85) {
                 currentFontSize -= 5;
@@ -404,141 +411,42 @@ function initAccessibility() {
         });
     }
 
-    // 2. SISTEMA DE LECTURA DE VOZ (MEJORADO)
+    // B. Lector de Voz (TTS)
     const btnTTS = document.getElementById('btnTTS');
     const synth = window.speechSynthesis;
 
     if (!btnTTS) return;
 
     btnTTS.addEventListener('click', () => {
-        // Si ya está hablando, lo detenemos (Click para Silenciar)
         if (synth.speaking) {
             synth.cancel();
-            isSpeaking = false;
             resetBotonTTS();
             return;
         }
-
-        // Si no está hablando, empezamos
         leerContenidoVisible();
     });
 
     function leerContenidoVisible() {
-        synth.cancel(); // Limpiar cola anterior por seguridad
-
-        const dashboardView = document.getElementById('dashboard-view');
-        const historicoView = document.getElementById('historico-view');
-        let textoALeer = "";
-
-        // Detectar texto visible
-        if (dashboardView && !dashboardView.classList.contains('hidden')) {
-            textoALeer = "Panorama General. " + limpiarTexto(dashboardView.innerText);
-        } else if (historicoView && !historicoView.classList.contains('hidden')) {
-            textoALeer = "Análisis Histórico. " + limpiarTexto(historicoView.innerText);
-        }
-
-        if (!textoALeer || textoALeer.trim().length === 0) {
-            alert("No hay texto visible para leer.");
-            return;
-        }
-
-        // Crear el objeto de voz (Global para evitar bugs)
-        currentUtterance = new SpeechSynthesisUtterance(textoALeer);
-        
-        // --- CONFIGURACIÓN CRÍTICA DE LA VOZ ---
-        // Intentamos obtener las voces disponibles
-        const voices = synth.getVoices();
-        
-        // Buscamos preferentemente una voz mexicana, si no, cualquier español
-        const vozLatina = voices.find(voice => voice.lang === 'es-MX') || 
-                          voices.find(voice => voice.lang.includes('es'));
-        
-        if (vozLatina) {
-            currentUtterance.voice = vozLatina;
-            currentUtterance.lang = vozLatina.lang;
-        } else {
-            // Fallback genérico si no carga voces aún
-            currentUtterance.lang = 'es-MX';
-        }
-
-        currentUtterance.rate = 1.0; // Velocidad normal
-
-        // --- EVENTOS VISUALES ---
-        currentUtterance.onstart = () => {
-            btnTTS.classList.add('speaking-active');
-            // Cambiamos el ícono a "Stop" (cuadrado)
-            btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; 
-        };
-
-        currentUtterance.onend = () => {
-            resetBotonTTS();
-        };
-
-        currentUtterance.onerror = (e) => {
-            console.error("Error de lectura:", e);
-            resetBotonTTS();
-        };
-
-        synth.speak(currentUtterance);
-    }
-
-    function resetBotonTTS() {
-        btnTTS.classList.remove('speaking-active');
-        // Regresamos el ícono a "Bocina"
-        btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
-    }
-
-    function limpiarTexto(texto) {
-        // Quitamos saltos de línea excesivos y textos de íconos que no se leen bien
-        return texto
-            .replace(/\s+/g, ' ')           // Espacios dobles a uno solo
-            .replace(/(\r\n|\n|\r)/gm, ". ") // Saltos de línea son pausas
-            .replace(/arrow_forward/g, "")  // Limpiar nombres de iconos si se cuelan
-            .substring(0, 4000);            // Límite de seguridad de caracteres
-    }
-}
-
-    function leerContenidoVisible() {
-        // Detener cualquier audio previo
         synth.cancel();
 
-        // Detectar qué vista está activa (Dashboard o Histórico)
         const dashboardView = document.getElementById('dashboard-view');
         const historicoView = document.getElementById('historico-view');
         let textoALeer = "";
 
-        if (!dashboardView.classList.contains('hidden')) {
+        if (dashboardView && !dashboardView.classList.contains('hidden')) {
             textoALeer = "Estás en el Panorama General. " + limpiarTexto(dashboardView.innerText);
-        } else if (!historicoView.classList.contains('hidden')) {
+        } else if (historicoView && !historicoView.classList.contains('hidden')) {
             textoALeer = "Estás en el Análisis Histórico. " + limpiarTexto(historicoView.innerText);
         }
 
-        if (textoALeer) {
-            utterance = new SpeechSynthesisUtterance(textoALeer);
-            utterance.lang = 'es-MX'; // Español de México
-            utterance.rate = 1; // Velocidad normal
-            
-            // Eventos visuales
-            utterance.onstart = () => {
-                isSpeaking = true;
-                btnTTS.classList.add('speaking-active');
-                btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; // Cambiar icono a Stop
-            };
-
-            utterance.onend = () => {
-                isSpeaking = false;
-                btnTTS.classList.remove('speaking-active');
-                btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
-            };
-
-            synth.speak(utterance);
+        if (!textoALeer.trim()) {
+            alert("No hay texto visible.");
+            return;
         }
-    }
 
-    // Función auxiliar para limpiar el texto de saltos de línea excesivos
-    function limpiarTexto(texto) {
-        // Reemplaza múltiples espacios y saltos de línea por un punto y coma para pausa natural
-        return texto.replace(/\s+/g, ' ').replace(/(\r\n|\n|\r)/gm, ". ");
-    }
-}
-
+        currentUtterance = new SpeechSynthesisUtterance(textoALeer);
+        
+        // Configurar Voz
+        const voices = synth.getVoices();
+        const vozLatina = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
+        if (vozLatina) currentUtterance.voice =
