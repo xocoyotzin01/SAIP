@@ -449,4 +449,27 @@ function initAccessibility() {
         // Configurar Voz
         const voices = synth.getVoices();
         const vozLatina = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
-        if (vozLatina) currentUtterance.voice =
+        if (vozLatina) currentUtterance.voice = vozLatina;
+        
+        currentUtterance.rate = 1.0;
+
+        currentUtterance.onstart = () => {
+            btnTTS.classList.add('speaking-active');
+            btnTTS.innerHTML = '<i class="fas fa-stop"></i>';
+        };
+
+        currentUtterance.onend = () => resetBotonTTS();
+        currentUtterance.onerror = () => resetBotonTTS();
+
+        synth.speak(currentUtterance);
+    }
+
+    function resetBotonTTS() {
+        btnTTS.classList.remove('speaking-active');
+        btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
+    }
+
+    function limpiarTexto(texto) {
+        return texto.replace(/\s+/g, ' ').replace(/(\r\n|\n|\r)/gm, ". ").substring(0, 4000);
+    }
+}
