@@ -374,43 +374,129 @@ document.addEventListener('DOMContentLoaded', () => {
     initAccessibility();
 });
 
+// --- CORRECCIÓN EN APP.JS ---
+
+// Variable global fuera de la función para evitar que Chrome corte el audio
+let currentUtterance = null;
+
 function initAccessibility() {
     // 1. CONTROL DE TAMAÑO DE TEXTO
-    let currentFontSize = 100; // Porcentaje base
+    let currentFontSize = 100;
     const body = document.body;
     
-    document.getElementById('btnIncreaseFont').addEventListener('click', () => {
-        if (currentFontSize < 130) { // Límite máximo
-            currentFontSize += 5;
-            body.style.fontSize = `${currentFontSize}%`;
-        }
-    });
+    // Aseguramos que existan los elementos antes de agregar eventos
+    const btnInc = document.getElementById('btnIncreaseFont');
+    const btnDec = document.getElementById('btnDecreaseFont');
+    
+    if(btnInc && btnDec) {
+        btnInc.addEventListener('click', () => {
+            if (currentFontSize < 130) {
+                currentFontSize += 5;
+                body.style.fontSize = `${currentFontSize}%`;
+            }
+        });
 
-    document.getElementById('btnDecreaseFont').addEventListener('click', () => {
-        if (currentFontSize > 85) { // Límite mínimo
-            currentFontSize -= 5;
-            body.style.fontSize = `${currentFontSize}%`;
-        }
-    });
+        btnDec.addEventListener('click', () => {
+            if (currentFontSize > 85) {
+                currentFontSize -= 5;
+                body.style.fontSize = `${currentFontSize}%`;
+            }
+        });
+    }
 
-    // 2. SISTEMA DE LECTURA DE VOZ (TTS)
+    // 2. SISTEMA DE LECTURA DE VOZ (MEJORADO)
     const btnTTS = document.getElementById('btnTTS');
-    let isSpeaking = false;
-    let synth = window.speechSynthesis;
-    let utterance = null;
+    const synth = window.speechSynthesis;
+
+    if (!btnTTS) return;
 
     btnTTS.addEventListener('click', () => {
-        if (isSpeaking) {
-            // Si está hablando, callar
+        // Si ya está hablando, lo detenemos (Click para Silenciar)
+        if (synth.speaking) {
             synth.cancel();
             isSpeaking = false;
-            btnTTS.classList.remove('speaking-active');
-            btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
-        } else {
-            // Iniciar lectura
-            leerContenidoVisible();
+            resetBotonTTS();
+            return;
         }
+
+        // Si no está hablando, empezamos
+        leerContenidoVisible();
     });
+
+    function leerContenidoVisible() {
+        synth.cancel(); // Limpiar cola anterior por seguridad
+
+        const dashboardView = document.getElementById('dashboard-view');
+        const historicoView = document.getElementById('historico-view');
+        let textoALeer = "";
+
+        // Detectar texto visible
+        if (dashboardView && !dashboardView.classList.contains('hidden')) {
+            textoALeer = "Panorama General. " + limpiarTexto(dashboardView.innerText);
+        } else if (historicoView && !historicoView.classList.contains('hidden')) {
+            textoALeer = "Análisis Histórico. " + limpiarTexto(historicoView.innerText);
+        }
+
+        if (!textoALeer || textoALeer.trim().length === 0) {
+            alert("No hay texto visible para leer.");
+            return;
+        }
+
+        // Crear el objeto de voz (Global para evitar bugs)
+        currentUtterance = new SpeechSynthesisUtterance(textoALeer);
+        
+        // --- CONFIGURACIÓN CRÍTICA DE LA VOZ ---
+        // Intentamos obtener las voces disponibles
+        const voices = synth.getVoices();
+        
+        // Buscamos preferentemente una voz mexicana, si no, cualquier español
+        const vozLatina = voices.find(voice => voice.lang === 'es-MX') || 
+                          voices.find(voice => voice.lang.includes('es'));
+        
+        if (vozLatina) {
+            currentUtterance.voice = vozLatina;
+            currentUtterance.lang = vozLatina.lang;
+        } else {
+            // Fallback genérico si no carga voces aún
+            currentUtterance.lang = 'es-MX';
+        }
+
+        currentUtterance.rate = 1.0; // Velocidad normal
+
+        // --- EVENTOS VISUALES ---
+        currentUtterance.onstart = () => {
+            btnTTS.classList.add('speaking-active');
+            // Cambiamos el ícono a "Stop" (cuadrado)
+            btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; 
+        };
+
+        currentUtterance.onend = () => {
+            resetBotonTTS();
+        };
+
+        currentUtterance.onerror = (e) => {
+            console.error("Error de lectura:", e);
+            resetBotonTTS();
+        };
+
+        synth.speak(currentUtterance);
+    }
+
+    function resetBotonTTS() {
+        btnTTS.classList.remove('speaking-active');
+        // Regresamos el ícono a "Bocina"
+        btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>';
+    }
+
+    function limpiarTexto(texto) {
+        // Quitamos saltos de línea excesivos y textos de íconos que no se leen bien
+        return texto
+            .replace(/\s+/g, ' ')           // Espacios dobles a uno solo
+            .replace(/(\r\n|\n|\r)/gm, ". ") // Saltos de línea son pausas
+            .replace(/arrow_forward/g, "")  // Limpiar nombres de iconos si se cuelan
+            .substring(0, 4000);            // Límite de seguridad de caracteres
+    }
+}
 
     function leerContenidoVisible() {
         // Detener cualquier audio previo
@@ -455,3 +541,4 @@ function initAccessibility() {
         return texto.replace(/\s+/g, ' ').replace(/(\r\n|\n|\r)/gm, ". ");
     }
 }
+
