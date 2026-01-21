@@ -8,8 +8,8 @@ let state = {
     endYear: 2026,
     baseYear: 2026,
     activeChart: 'Total',
-    expandedRows: new Set(), // Para saber qué carpetas están abiertas
-    selectedRows: new Set()  // Para saber qué filas estamos comparando
+    expandedRows: new Set(),
+    selectedRows: new Set()
 };
 
 let trendChartInstance = null;
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Inyectar estilos para la selección de filas
+    // Inyectar estilos dinámicos para tablas
     const style = document.createElement('style');
     style.innerHTML = `
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
@@ -52,14 +52,17 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.dataset.theme = document.body.dataset.theme === 'dark' ? '' : 'dark';
         });
     }
+
+    // Inicializar el sistema de Tour (Demo)
+    initTourSystem();
 });
 
 // ==========================================
-// 3. LÓGICA DE INTERACCIÓN (EXPANDIR Y COMPARAR)
+// 3. LÓGICA DE INTERACCIÓN
 // ==========================================
 
-// Acción 1: Expandir/Contraer niveles (Click en el ícono o nombre)
 function toggleRow(id) {
+    // Evitamos propagación si hay selección activa
     if (state.expandedRows.has(id)) {
         state.expandedRows.delete(id);
     } else {
@@ -69,7 +72,6 @@ function toggleRow(id) {
     renderTable(searchText);
 }
 
-// Acción 2: Seleccionar para comparar (Click en los números)
 function toggleSelection(id) {
     if (state.selectedRows.has(id)) {
         state.selectedRows.delete(id);
@@ -80,7 +82,6 @@ function toggleSelection(id) {
     renderTable(searchText);
 }
 
-// Helpers de valores
 function getValor(item, year, tipo='obs') {
     if (!item || !item.datos[year]) return 0;
     let val = item.datos[year][tipo] !== undefined ? item.datos[year][tipo] : (item.datos[year]['obs'] || item.datos[year]['prog'] || 0);
@@ -124,7 +125,7 @@ function renderDashboard() {
 
     if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
-    // Tabla Resumen pequeña
+    // Tabla Resumen Dashboard
     const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); 
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
@@ -177,7 +178,7 @@ function cambiarGrafico(conceptoId) {
 function renderTrendChart(filtroConcepto) {
     const ctx = document.getElementById('trendChart');
     if(!ctx) return;
-    let itemGraficar = datosHacendarios.find(d => d.nivel === 1); // Default Total
+    let itemGraficar = datosHacendarios.find(d => d.nivel === 1); 
     
     if (filtroConcepto === 'Petroleros') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
     else if (filtroConcepto === 'Tributarios') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
@@ -214,7 +215,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA CON MULTI-NIVEL (4 -> 5 -> 6)
+// 6. TABLA HISTÓRICA (CORREGIDA: FILTRO + EXPANSIÓN)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -223,7 +224,6 @@ function renderTable(filterText = '') {
     
     if(!thead || !tbody) return;
 
-    // A. Encabezados
     let headersHTML = '<th>Concepto</th>';
     const years = [];
     for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
@@ -231,62 +231,55 @@ function renderTable(filterText = '') {
     thead.innerHTML = headersHTML;
 
     tbody.innerHTML = '';
-    // NOTA: Eliminamos el cálculo de totales del footer (tfoot) porque se pidió quitarlo.
     if(tfoot) tfoot.innerHTML = ''; 
 
-    // B. Lógica de Filtrado y Visibilidad
+    // --- LÓGICA CORREGIDA ---
     let itemsVisibles = [];
-    
-    // Rastreadores de jerarquía para saber quién es padre de quién
     let lastLevel4Id = null;
     let lastLevel5Id = null;
 
     datosHacendarios.forEach(item => {
-        // Actualizar punteros de padres
+        // Rastrear Padres
         if (item.nivel === 4) { lastLevel4Id = item.id; lastLevel5Id = null; }
         if (item.nivel === 5) { lastLevel5Id = item.id; }
 
         let isVisible = false;
+        const matchesFilter = filterText === '' || item.concepto.toLowerCase().includes(filterText.toLowerCase());
 
-        // 1. REGLA BASE: Niveles 1, 2, 3 y 4 siempre visibles
+        // Reglas de Visibilidad
         if (item.nivel <= 4) {
-            isVisible = true;
-        }
-        // 2. REGLA NIVEL 5: Visible solo si su padre (Nivel 4) está expandido
+            // Nivel 4 se ve si coincide con el filtro, O si no hay filtro
+            isVisible = matchesFilter; 
+        } 
         else if (item.nivel === 5) {
-            if (lastLevel4Id && state.expandedRows.has(lastLevel4Id)) {
-                isVisible = true;
+            // Nivel 5 se ve SI:
+            // 1. Su padre (Nivel 4) está expandido (PRIORIDAD AL CLICK)
+            // 2. Y (No hay filtro activo O el padre se mostró porque coincidía)
+            // Esto permite que si busco "Trib", sale el padre, y si doy click, salen los hijos aunque no digan "Trib"
+            const parentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+            
+            if (parentExpanded) {
+                isVisible = true; // Si el padre está abierto, muestra al hijo SIEMPRE
+            } else if (matchesFilter && filterText !== '') {
+                isVisible = true; // Si el hijo coincide directo con la búsqueda
             }
-        }
-        // 3. REGLA NIVEL 6: Visible solo si Nivel 4 Y Nivel 5 están expandidos
+        } 
         else if (item.nivel === 6) {
-            if (lastLevel4Id && state.expandedRows.has(lastLevel4Id) && 
-                lastLevel5Id && state.expandedRows.has(lastLevel5Id)) {
+            const parentExpanded = lastLevel5Id && state.expandedRows.has(lastLevel5Id);
+            const grandParentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+            
+            if (grandParentExpanded && parentExpanded) {
                 isVisible = true;
-            }
-        }
-
-        // 4. REGLA DE BÚSQUEDA: Si hay texto, filtramos sobre lo visible
-        if (filterText !== '') {
-            // Si el ítem coincide con el texto, lo mostramos
-            if (item.concepto.toLowerCase().includes(filterText.toLowerCase())) {
-                isVisible = true; 
-                // Al buscar, forzamos la visibilidad aunque esté cerrado el padre (opcional, pero mejor UX)
-                // En este caso estricto, respetamos la jerarquía visual salvo coincidencia directa
-            } else {
-                isVisible = false;
+            } else if (matchesFilter && filterText !== '') {
+                isVisible = true;
             }
         }
 
         if (isVisible) {
-            // Clonamos el objeto para no mutar el original y le pegamos info de padres
-            // para saber si tiene hijos (esto requeriría pre-procesamiento complejo), 
-            // simplificamos asumiendo que 4 tiene hijos 5, y 5 tiene hijos 6.
             itemsVisibles.push(item);
         }
     });
 
-    // C. Renderizado
     itemsVisibles.forEach(item => {
         const tr = document.createElement('tr');
         const isSelected = state.selectedRows.has(item.id);
@@ -294,24 +287,21 @@ function renderTable(filterText = '') {
 
         if (isSelected) tr.classList.add('selected-row');
 
-        // Estilos
         const padding = `${(item.nivel-1)*20}px`;
         const fontWeight = item.nivel <= 4 ? '700' : '400';
         const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
         
-        // Icono de expansión para niveles 4 y 5
+        // Icono de expansión
         let conceptoHTML = '';
         if (item.nivel === 4 || item.nivel === 5) {
             const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
             const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
-            // Click en icono -> Expandir
             conceptoHTML = `
                 <div style="cursor:pointer; display:flex; align-items:center;">
                     <i class="fas ${icon}" style="margin-right:8px; color:${iconColor};" onclick="toggleRow(${item.id})"></i>
                     <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
                 </div>`;
         } else {
-            // Niveles sin hijos (6) o superiores estáticos (1,2,3)
             conceptoHTML = `<span style="cursor:pointer" onclick="toggleSelection(${item.id})">${item.concepto}</span>`;
         }
 
@@ -319,7 +309,6 @@ function renderTable(filterText = '') {
         
         years.forEach(y => {
             const val = getValor(item, y, 'obs');
-            // Click en celda -> Seleccionar para comparar
             tr.innerHTML += `<td class="clickable-cell" onclick="toggleSelection(${item.id})">${formatMoney(val)}</td>`;
         });
         tbody.appendChild(tr);
@@ -327,7 +316,7 @@ function renderTable(filterText = '') {
 }
 
 // ==========================================
-// 7. UTILS Y EXPORTAR
+// 7. UTILS & SISTEMA DE TOUR (DEMO)
 // ==========================================
 function initFilters() {
     const startSel = document.getElementById('startYear');
@@ -346,6 +335,11 @@ function switchView(viewName) {
     document.getElementById('dashboard-view').classList.add('hidden');
     document.getElementById('historico-view').classList.add('hidden');
     document.getElementById(`${viewName}-view`).classList.remove('hidden');
+
+    // ACTIVAR TOUR SI ENTRA A HISTÓRICO POR PRIMERA VEZ
+    if (viewName === 'historico') {
+        checkAndStartTour();
+    }
 }
 
 function setMode(newMode) {
@@ -380,19 +374,15 @@ function initAccessibility() {
     btnTTS.addEventListener('click', () => {
         if (synth.speaking) { synth.cancel(); resetBotonTTS(); return; }
         
-        // Leer texto visible
         let texto = "";
         if(!document.getElementById('dashboard-view').classList.contains('hidden')) {
              texto = "Panorama. " + document.getElementById('dashboard-view').innerText;
         } else {
-             // En histórico solo leemos los encabezados y las filas seleccionadas para no saturar
              const seleccionadas = Array.from(state.selectedRows).length;
-             texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas para comparación.`;
+             texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas.`;
         }
 
         currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
-        
-        // Config voz
         const voices = synth.getVoices();
         const voz = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
         if(voz) currentUtterance.voice = voz;
@@ -404,3 +394,125 @@ function initAccessibility() {
     });
     function resetBotonTTS() { btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>'; btnTTS.classList.remove('speaking-active'); }
 }
+
+// --- LÓGICA DEL TOUR / DEMO ---
+let tourStep = 0;
+const tourSteps = [
+    {
+        elementId: 'searchInput',
+        title: '🔍 Búsqueda Inteligente',
+        text: 'Escribe conceptos clave como "ISR" o "Tributarios". Puedes expandir los resultados con el botón [+] para ver detalles.'
+    },
+    {
+        elementId: 'btn-real',
+        title: '📊 Deflactación Automática',
+        text: 'Cambia entre valores Nominales y Reales con un clic. El sistema ajusta la inflación automáticamente a precios de 2026.'
+    },
+    {
+        elementId: 'main-table', // Apunta a la tabla
+        title: '💡 Comparación Visual',
+        text: 'Haz clic en los números de cualquier fila para resaltarla en amarillo. ¡Selecciona varias filas lejanas para compararlas fácilmente!'
+    },
+    {
+        elementId: 'btnTTS', // Bocina
+        title: '🔊 Accesibilidad',
+        text: 'Usa las herramientas superiores para ajustar el tamaño de letra o escuchar el contenido en voz alta.'
+    }
+];
+
+function initTourSystem() {
+    // Crear HTML del Overlay si no existe
+    if (!document.getElementById('tour-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.id = 'tour-overlay';
+        overlay.className = 'tour-overlay';
+        overlay.innerHTML = `
+            <div id="tour-box" class="tour-box">
+                <div class="tour-title">
+                    <i class="fas fa-info-circle"></i> <span id="tour-title">Bienvenido</span>
+                </div>
+                <div id="tour-content" class="tour-content">Texto del tour</div>
+                <div class="tour-footer">
+                    <div id="tour-dots" class="tour-dots"></div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-tour btn-skip" onclick="endTour()">Omitir</button>
+                        <button class="btn-tour btn-next" onclick="nextStep()">Siguiente</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+}
+
+function checkAndStartTour() {
+    // Verificar si ya vio el tour (usando localStorage)
+    if (!localStorage.getItem('saip_tour_v1')) {
+        startTour();
+    }
+}
+
+function startTour() {
+    tourStep = 0;
+    document.getElementById('tour-overlay').style.display = 'block';
+    showStep();
+}
+
+function showStep() {
+    const step = tourSteps[tourStep];
+    const el = document.getElementById(step.elementId);
+    
+    // Limpiar highlights previos
+    document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step'));
+
+    if (el) {
+        el.classList.add('highlight-step');
+        // Posicionar caja cerca del elemento (simple logic)
+        const rect = el.getBoundingClientRect();
+        const box = document.getElementById('tour-box');
+        
+        // Calcular posición (por defecto abajo, si no cabe arriba)
+        let top = rect.bottom + 15;
+        let left = rect.left;
+        
+        // Ajuste simple para que no se salga de pantalla
+        if (left + 300 > window.innerWidth) left = window.innerWidth - 320;
+        if (top + 200 > window.innerHeight) top = rect.top - 200;
+
+        box.style.top = `${Math.max(10, top)}px`;
+        box.style.left = `${Math.max(10, left)}px`;
+    }
+
+    // Actualizar Textos
+    document.getElementById('tour-title').innerText = step.title;
+    document.getElementById('tour-content').innerText = step.text;
+
+    // Actualizar Dots
+    const dotsContainer = document.getElementById('tour-dots');
+    dotsContainer.innerHTML = '';
+    tourSteps.forEach((_, i) => {
+        const dot = document.createElement('div');
+        dot.className = `dot ${i === tourStep ? 'active' : ''}`;
+        dotsContainer.appendChild(dot);
+    });
+}
+
+function nextStep() {
+    if (tourStep < tourSteps.length - 1) {
+        tourStep++;
+        showStep();
+    } else {
+        endTour();
+    }
+}
+
+function endTour() {
+    document.getElementById('tour-overlay').style.display = 'none';
+    document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step'));
+    // Marcar como visto para no molestar más
+    localStorage.setItem('saip_tour_v1', 'true');
+}
+
+// Exponer funciones globales para los botones onclick del HTML inyectado
+window.nextStep = nextStep;
+window.endTour = endTour;
