@@ -25,10 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // 1. CONFIGURACIÓN INICIAL: Desplegar hasta nivel 4 por defecto
-    // Esto significa que Nivel 1, 2 y 3 deben iniciar "Expandidos"
+    // --- CONFIGURACIÓN DE APERTURA INICIAL ---
+    // Expandimos Nivel 1, 2 y 3 para que el usuario vea desglosado hasta el Nivel 4
     datosHacendarios.forEach(item => {
-        if (item.nivel < 4) {
+        if (item.nivel <= 3) { // Expandir carpetas de nivel 1, 2 y 3
             state.expandedRows.add(item.id);
         }
     });
@@ -45,8 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
         .clickable-cell { cursor: pointer; }
         .clickable-cell:hover { background-color: rgba(0,0,0,0.05); }
-        /* Identación visual para el árbol */
-        .indent-icon { display: inline-block; width: 20px; text-align: center; margin-right: 5px; }
+        .indent-icon { display: inline-block; width: 24px; text-align: center; margin-right: 5px; cursor: pointer; }
     `;
     document.head.appendChild(style);
 
@@ -134,7 +133,6 @@ function renderDashboard() {
 
     if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
-    // Tabla Resumen
     const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); 
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
@@ -224,7 +222,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA (ÁRBOL JERÁRQUICO COMPLETO)
+// 6. TABLA HISTÓRICA (LÓGICA ÁRBOL CORREGIDA)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -242,52 +240,63 @@ function renderTable(filterText = '') {
     tbody.innerHTML = '';
     if(tfoot) tfoot.innerHTML = ''; 
 
-    // --- LÓGICA DE ÁRBOL GENÉRICO ---
     let itemsVisibles = [];
     
-    // Diccionario para saber quién es el padre actual de cada nivel
+    // Rastreadores de IDs padres para conectar la jerarquía
     let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
     let parentMatches = { 1: false, 2: false, 3: false, 4: false, 5: false };
 
     datosHacendarios.forEach(item => {
-        // Actualizar referencia de padre para niveles inferiores
+        // 1. REGISTRAR PADRES (El orden del Excel debe ser Top-Down)
         parentIds[item.nivel] = item.id;
         
-        // Limpiar referencias de niveles más profundos (si entro a un nuevo nivel 2, borro los padres nivel 3 viejos)
+        // Limpiar subniveles al cambiar de rama
         for(let l = item.nivel + 1; l <= 6; l++) {
             parentIds[l] = null;
             parentMatches[l] = false;
         }
 
+        // 2. FILTRADO
         const matchesSelf = filterText === '' || item.concepto.toLowerCase().includes(filterText.toLowerCase());
-        parentMatches[item.nivel] = matchesSelf; // Guardo si este item coincide
+        parentMatches[item.nivel] = matchesSelf;
 
+        // 3. VISIBILIDAD
         let isVisible = false;
 
-        // 1. NIVEL 1 (TOTAL): Siempre visible si no hay filtro, o si coincide
+        // --- NIVEL 1 (Raíz Absoluta) ---
         if (item.nivel === 1) {
             isVisible = (filterText === '') || matchesSelf;
         }
-        else {
-            // 2. NIVEL 2 EN ADELANTE:
-            // Obtener ID del padre inmediato
-            const parentId = parentIds[item.nivel - 1];
-            const parentMatchedFilter = parentMatches[item.nivel - 1]; // ¿El padre coincidió con la búsqueda?
-            
-            // Regla A: El padre está expandido -> Mostrar hijo (si no hay filtro o si hijo coincide)
-            const isParentExpanded = parentId && state.expandedRows.has(parentId);
-            
+        // --- NIVEL 2 (Raíz Secundaria: Petroleros, No Petroleros) ---
+        else if (item.nivel === 2) {
+            // CORRECCIÓN CLAVE:
+            // Si existe un padre Nivel 1 (Total), dependemos de que esté expandido.
+            // PERO, si NO existe padre (null), asumimos que este item es una Raíz y lo mostramos.
+            const parentId = parentIds[1];
+            const isParentExpanded = parentId ? state.expandedRows.has(parentId) : true; // True por defecto si no hay padre
+
             if (isParentExpanded) {
-                 // Si el padre está abierto, el hijo se ve.
-                 // EXCEPCIÓN: Si hay filtro, el hijo debe coincidir O el padre debe haber coincidido (contexto)
-                 if (filterText === '') isVisible = true;
-                 else if (matchesSelf) isVisible = true; // Hijo coincide
-                 else if (parentMatchedFilter) isVisible = true; // Padre coincidió, mostramos hijos para contexto
-            } 
-            else {
-                // Regla B: El padre NO está expandido
-                // Solo mostrar si el hijo coincide con la búsqueda (resultado huérfano)
-                // Y ocultar si el padre ya coincidió (para que quede agrupado)
+                // Si el padre está abierto (o no existe), aplicamos lógica de filtro normal
+                if (filterText === '') isVisible = true;
+                else if (matchesSelf || parentMatches[1]) isVisible = true;
+            }
+        }
+        // --- NIVELES PROFUNDOS (3, 4, 5, 6) ---
+        else {
+            const parentId = parentIds[item.nivel - 1];
+            const parentMatchedFilter = parentMatches[item.nivel - 1];
+            
+            // ¿Está expandido el padre inmediato?
+            const isParentExpanded = parentId && state.expandedRows.has(parentId);
+
+            if (isParentExpanded) {
+                // Padre abierto: mostrar si no hay filtro, si yo coincido, o si mi padre coincidió (contexto)
+                if (filterText === '') isVisible = true;
+                else if (matchesSelf) isVisible = true;
+                else if (parentMatchedFilter) isVisible = true;
+            } else {
+                // Padre cerrado: solo mostrar si yo coincido con la búsqueda (resultado huérfano)
+                // y el padre NO coincidió (para evitar duplicidad visual)
                 if (matchesSelf && !parentMatchedFilter && filterText !== '') {
                     isVisible = true;
                 }
@@ -310,14 +319,13 @@ function renderTable(filterText = '') {
         const fontWeight = item.nivel <= 4 ? '700' : '400';
         const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
         
-        // --- BOTONES DESPLEGABLES ---
-        // Asignamos desplegable a Niveles 2, 3, 4 y 5 (Asumiendo que 1 es raíz estática y 6 es hoja)
-        // Ojo: Nivel 1 también podría tener, pero suele ser el título. Vamos a dárselo a 2, 3, 4, 5.
+        // --- ICONOS DESPLEGABLES ---
+        // Se lo damos a todos menos al último nivel (asumiendo 6 como hoja, o si no tiene hijos en data real)
+        // Por seguridad, daremos botón a niveles 1, 2, 3, 4, 5.
         let conceptoHTML = '';
-        
-        const nivelesConHijos = [2, 3, 4, 5]; // Ajustable
-        
-        if (nivelesConHijos.includes(item.nivel)) {
+        const levelsWithChildren = [1, 2, 3, 4, 5]; 
+
+        if (levelsWithChildren.includes(item.nivel)) {
             const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
             const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
             conceptoHTML = `
@@ -328,10 +336,10 @@ function renderTable(filterText = '') {
                     <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
                 </div>`;
         } else {
-            // Niveles sin hijos (ej. Nivel 6 o Nivel 1 si así se desea)
             conceptoHTML = `
                 <div style="cursor:pointer; display:flex; align-items:center;">
-                    <div class="indent-icon"></div> <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
+                    <div class="indent-icon"></div>
+                    <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
                 </div>`;
         }
 
@@ -365,10 +373,7 @@ function switchView(viewName) {
     document.getElementById('dashboard-view').classList.add('hidden');
     document.getElementById('historico-view').classList.add('hidden');
     document.getElementById(`${viewName}-view`).classList.remove('hidden');
-
-    if (viewName === 'historico') {
-        checkAndStartTour();
-    }
+    if (viewName === 'historico') checkAndStartTour();
 }
 
 function setMode(newMode) {
@@ -402,7 +407,6 @@ function initAccessibility() {
 
     btnTTS.addEventListener('click', () => {
         if (synth.speaking) { synth.cancel(); resetBotonTTS(); return; }
-        
         let texto = "";
         if(!document.getElementById('dashboard-view').classList.contains('hidden')) {
              texto = "Panorama. " + document.getElementById('dashboard-view').innerText;
@@ -410,12 +414,10 @@ function initAccessibility() {
              const seleccionadas = Array.from(state.selectedRows).length;
              texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas.`;
         }
-
         currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
         const voices = synth.getVoices();
         const voz = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
         if(voz) currentUtterance.voice = voz;
-
         currentUtterance.rate = 1;
         currentUtterance.onstart = () => { btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; btnTTS.classList.add('speaking-active'); };
         currentUtterance.onend = resetBotonTTS;
@@ -429,7 +431,7 @@ let tourStep = 0;
 const tourSteps = [
     { elementId: 'searchInput', title: '🔍 Búsqueda Profunda', text: 'Busca "Petroleros" y usa el botón [+] para ver su desglose interno.' },
     { elementId: 'btn-real', title: '📊 Nominal vs Real', text: 'Cambia a valores reales para descontar la inflación.' },
-    { elementId: 'main-table', title: '🌲 Árbol Interactivo', text: 'Navega por niveles (2, 3, 4) y selecciona filas para compararlas.' },
+    { elementId: 'main-table', title: '🌲 Árbol Interactivo', text: 'Todos los niveles (incluyendo Petroleros) son desplegables. Selecciona filas para comparar.' },
     { elementId: 'btnTTS', title: '🔊 Accesibilidad', text: 'Lectura de voz y ajuste de texto disponibles.' }
 ];
 
@@ -453,7 +455,7 @@ function initTourSystem() {
         document.body.appendChild(overlay);
     }
 }
-function checkAndStartTour() { if (!localStorage.getItem('saip_tour_v2')) startTour(); } // Cambié versión a v2 para que te salga de nuevo
+function checkAndStartTour() { if (!localStorage.getItem('saip_tour_v3')) startTour(); }
 function startTour() { tourStep = 0; document.getElementById('tour-overlay').style.display = 'block'; showStep(); }
 function showStep() {
     const step = tourSteps[tourStep];
@@ -481,5 +483,5 @@ function showStep() {
     });
 }
 function nextStep() { if (tourStep < tourSteps.length - 1) { tourStep++; showStep(); } else { endTour(); } }
-function endTour() { document.getElementById('tour-overlay').style.display = 'none'; document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step')); localStorage.setItem('saip_tour_v2', 'true'); }
+function endTour() { document.getElementById('tour-overlay').style.display = 'none'; document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step')); localStorage.setItem('saip_tour_v3', 'true'); }
 window.nextStep = nextStep; window.endTour = endTour;
