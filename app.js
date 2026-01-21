@@ -8,7 +8,8 @@ let state = {
     endYear: 2026,
     baseYear: 2026,
     activeChart: 'Total',
-    expandedRows: new Set() // NUEVO: Para guardar qué filas están abiertas
+    expandedRows: new Set(), // Para saber qué carpetas están abiertas
+    selectedRows: new Set()  // Para saber qué filas estamos comparando
 };
 
 let trendChartInstance = null;
@@ -29,9 +30,17 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTrendChart(state.activeChart);    
     renderTable();         
     
+    // Inyectar estilos para la selección de filas
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
+        .clickable-cell { cursor: pointer; }
+        .clickable-cell:hover { background-color: rgba(0,0,0,0.05); }
+    `;
+    document.head.appendChild(style);
+
     const searchInput = document.getElementById('searchInput');
     if(searchInput) {
-        // Modificado para reiniciar expansión al buscar
         searchInput.addEventListener('keyup', (e) => {
             renderTable(e.target.value);
         });
@@ -46,21 +55,32 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==========================================
-// 3. LÓGICA DE DATOS Y EXPANSIÓN
+// 3. LÓGICA DE INTERACCIÓN (EXPANDIR Y COMPARAR)
 // ==========================================
 
-// NUEVA FUNCIÓN: Abrir/Cerrar niveles
+// Acción 1: Expandir/Contraer niveles (Click en el ícono o nombre)
 function toggleRow(id) {
     if (state.expandedRows.has(id)) {
         state.expandedRows.delete(id);
     } else {
         state.expandedRows.add(id);
     }
-    // Renderizamos de nuevo para aplicar cambios
     const searchText = document.getElementById('searchInput').value;
     renderTable(searchText);
 }
 
+// Acción 2: Seleccionar para comparar (Click en los números)
+function toggleSelection(id) {
+    if (state.selectedRows.has(id)) {
+        state.selectedRows.delete(id);
+    } else {
+        state.selectedRows.add(id);
+    }
+    const searchText = document.getElementById('searchInput').value;
+    renderTable(searchText);
+}
+
+// Helpers de valores
 function getValor(item, year, tipo='obs') {
     if (!item || !item.datos[year]) return 0;
     let val = item.datos[year][tipo] !== undefined ? item.datos[year][tipo] : (item.datos[year]['obs'] || item.datos[year]['prog'] || 0);
@@ -79,7 +99,7 @@ function getValorNominal(item, year, tipo='obs') {
 }
 
 // ==========================================
-// 4. RENDER DASHBOARD (Sin cambios mayores)
+// 4. RENDER DASHBOARD
 // ==========================================
 function renderDashboard() {
     const tableBody = document.querySelector('#resumen-table tbody');
@@ -94,10 +114,8 @@ function renderDashboard() {
     const prevYear = 2025;
     const macroData = (typeof datosMacro !== 'undefined' && datosMacro[currentYear]) ? datosMacro[currentYear] : {};
 
-    // Items Principales (Ajusta los niveles según tu Excel real si es necesario)
     const itemTotal = datosHacendarios.find(d => d.nivel === 1);
     const itemPetroleros = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
-    // Buscamos tributarios genéricos para la tarjeta
     const itemTributarios = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
 
     if (itemTotal) crearTarjeta({ id: 'Total', titulo: "Ingresos Totales", valor: getValor(itemTotal, currentYear, 'prog'), valorPrev: getValor(itemTotal, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-sack-dollar", isActive: state.activeChart === 'Total', macros: [] }, kpiContainer);
@@ -107,7 +125,7 @@ function renderDashboard() {
     if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
     // Tabla Resumen pequeña
-    const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); // Solo mostramos niveles altos en resumen
+    const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); 
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
         const valNomCurr = getValorNominal(item, currentYear, 'prog');
@@ -196,7 +214,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA CON DRIL-DOWN (MEJORADA)
+// 6. TABLA HISTÓRICA CON MULTI-NIVEL (4 -> 5 -> 6)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -205,7 +223,7 @@ function renderTable(filterText = '') {
     
     if(!thead || !tbody) return;
 
-    // Encabezados
+    // A. Encabezados
     let headersHTML = '<th>Concepto</th>';
     const years = [];
     for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
@@ -213,113 +231,104 @@ function renderTable(filterText = '') {
     thead.innerHTML = headersHTML;
 
     tbody.innerHTML = '';
-    let totalesColumna = new Array(years.length).fill(0);
-    
-    // --- LÓGICA DE FILTRADO INTELIGENTE ---
-    // Si buscas "Tributarios" (Nivel 4), queremos traer también a sus hijos (Nivel 5)
-    // aunque sus hijos no tengan la palabra "Tributarios" en el nombre.
-    
+    // NOTA: Eliminamos el cálculo de totales del footer (tfoot) porque se pidió quitarlo.
+    if(tfoot) tfoot.innerHTML = ''; 
+
+    // B. Lógica de Filtrado y Visibilidad
     let itemsVisibles = [];
-    let captureChildren = false; // Bandera para saber si estamos capturando hijos de un padre encontrado
-    let currentParentLevel = 0;
+    
+    // Rastreadores de jerarquía para saber quién es padre de quién
+    let lastLevel4Id = null;
+    let lastLevel5Id = null;
 
     datosHacendarios.forEach(item => {
-        const match = item.concepto.toLowerCase().includes(filterText.toLowerCase());
+        // Actualizar punteros de padres
+        if (item.nivel === 4) { lastLevel4Id = item.id; lastLevel5Id = null; }
+        if (item.nivel === 5) { lastLevel5Id = item.id; }
 
-        // Regla: Si es Nivel 4 y coincide con la búsqueda
-        if (item.nivel === 4) {
-            if (match) {
-                itemsVisibles.push(item);
-                captureChildren = true; // Activar captura de hijos
-                currentParentLevel = 4;
-            } else {
-                captureChildren = false; // Si el padre no coincide, no capturamos hijos (a menos que el hijo coincida por sí solo)
-                // Pero si NO hay filtro, mostramos todo
-                if (filterText === '') itemsVisibles.push(item);
-            }
-        } 
-        // Regla: Si es Nivel 5 (Hijo)
+        let isVisible = false;
+
+        // 1. REGLA BASE: Niveles 1, 2, 3 y 4 siempre visibles
+        if (item.nivel <= 4) {
+            isVisible = true;
+        }
+        // 2. REGLA NIVEL 5: Visible solo si su padre (Nivel 4) está expandido
         else if (item.nivel === 5) {
-            // Lo mostramos si: 
-            // 1. Su padre fue encontrado (captureChildren)
-            // 2. O el usuario buscó "ISR" directamente (match)
-            // 3. O no hay filtro activo
-            if (captureChildren || match || filterText === '') {
-                itemsVisibles.push(item);
+            if (lastLevel4Id && state.expandedRows.has(lastLevel4Id)) {
+                isVisible = true;
             }
-        } 
-        // Otros niveles (1, 2, 3)
-        else {
-            if (match || filterText === '') itemsVisibles.push(item);
-            captureChildren = false; // Reset al salir del grupo
         }
-    });
-
-    // --- RENDERIZADO CON EXPANSION ---
-    let lastLevel4Id = null; // Para saber a quién pertenecen los nivel 5
-
-    itemsVisibles.forEach(item => {
-        // Control de Estado del Padre
-        if (item.nivel === 4) {
-            lastLevel4Id = item.id;
+        // 3. REGLA NIVEL 6: Visible solo si Nivel 4 Y Nivel 5 están expandidos
+        else if (item.nivel === 6) {
+            if (lastLevel4Id && state.expandedRows.has(lastLevel4Id) && 
+                lastLevel5Id && state.expandedRows.has(lastLevel5Id)) {
+                isVisible = true;
+            }
         }
 
-        // Determinar si debemos mostrar la fila
-        let isVisible = true;
-        let isExpanded = false;
-
-        // Si es nivel 5, solo se ve si su padre (lastLevel4Id) está en expandedRows
-        if (item.nivel === 5) {
-            if (lastLevel4Id && !state.expandedRows.has(lastLevel4Id)) {
+        // 4. REGLA DE BÚSQUEDA: Si hay texto, filtramos sobre lo visible
+        if (filterText !== '') {
+            // Si el ítem coincide con el texto, lo mostramos
+            if (item.concepto.toLowerCase().includes(filterText.toLowerCase())) {
+                isVisible = true; 
+                // Al buscar, forzamos la visibilidad aunque esté cerrado el padre (opcional, pero mejor UX)
+                // En este caso estricto, respetamos la jerarquía visual salvo coincidencia directa
+            } else {
                 isVisible = false;
             }
         }
 
-        if (state.expandedRows.has(item.id)) isExpanded = true;
-
         if (isVisible) {
-            const tr = document.createElement('tr');
-            
-            // Estilos dinámicos
-            const padding = `${(item.nivel-1)*20}px`;
-            const fontWeight = item.nivel <= 4 ? '700' : '400';
-            const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
-            
-            // Construir celda de Concepto con Botón Toggle si es Nivel 4
-            let conceptoHTML = '';
-            if (item.nivel === 4) {
-                const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
-                const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
-                // Añadimos el evento onclick solo al icono y texto
-                conceptoHTML = `
-                    <div style="cursor:pointer; display:flex; align-items:center;" onclick="toggleRow(${item.id})">
-                        <i class="fas ${icon}" style="margin-right:8px; color:${iconColor};"></i>
-                        <span>${item.concepto}</span>
-                    </div>`;
-            } else {
-                conceptoHTML = item.concepto;
-            }
-
-            // Inyectar HTML
-            tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${fontWeight}; color:${color}">${conceptoHTML}</td>`;
-            
-            years.forEach((y, index) => {
-                const val = getValor(item, y, 'obs');
-                tr.innerHTML += `<td>${formatMoney(val)}</td>`;
-                if (item.nivel === 1) totalesColumna[index] += val; 
-            });
-            tbody.appendChild(tr);
+            // Clonamos el objeto para no mutar el original y le pegamos info de padres
+            // para saber si tiene hijos (esto requeriría pre-procesamiento complejo), 
+            // simplificamos asumiendo que 4 tiene hijos 5, y 5 tiene hijos 6.
+            itemsVisibles.push(item);
         }
     });
 
-    // Footer totales
-    let footerHTML = '<td>TOTAL</td>';
-    years.forEach((y, index) => {
-        footerHTML += `<td>${formatMoney(totalesColumna[index])}</td>`;
+    // C. Renderizado
+    itemsVisibles.forEach(item => {
+        const tr = document.createElement('tr');
+        const isSelected = state.selectedRows.has(item.id);
+        const isExpanded = state.expandedRows.has(item.id);
+
+        if (isSelected) tr.classList.add('selected-row');
+
+        // Estilos
+        const padding = `${(item.nivel-1)*20}px`;
+        const fontWeight = item.nivel <= 4 ? '700' : '400';
+        const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
+        
+        // Icono de expansión para niveles 4 y 5
+        let conceptoHTML = '';
+        if (item.nivel === 4 || item.nivel === 5) {
+            const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
+            const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
+            // Click en icono -> Expandir
+            conceptoHTML = `
+                <div style="cursor:pointer; display:flex; align-items:center;">
+                    <i class="fas ${icon}" style="margin-right:8px; color:${iconColor};" onclick="toggleRow(${item.id})"></i>
+                    <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
+                </div>`;
+        } else {
+            // Niveles sin hijos (6) o superiores estáticos (1,2,3)
+            conceptoHTML = `<span style="cursor:pointer" onclick="toggleSelection(${item.id})">${item.concepto}</span>`;
+        }
+
+        tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${fontWeight}; color:${color}">${conceptoHTML}</td>`;
+        
+        years.forEach(y => {
+            const val = getValor(item, y, 'obs');
+            // Click en celda -> Seleccionar para comparar
+            tr.innerHTML += `<td class="clickable-cell" onclick="toggleSelection(${item.id})">${formatMoney(val)}</td>`;
+        });
+        tbody.appendChild(tr);
     });
-    tfoot.innerHTML = footerHTML;
 }
 
+// ==========================================
+// 7. UTILS Y EXPORTAR
+// ==========================================
 function initFilters() {
     const startSel = document.getElementById('startYear');
     const endSel = document.getElementById('endYear');
@@ -370,11 +379,24 @@ function initAccessibility() {
 
     btnTTS.addEventListener('click', () => {
         if (synth.speaking) { synth.cancel(); resetBotonTTS(); return; }
-        let texto = document.getElementById('dashboard-view').classList.contains('hidden') 
-            ? "Histórico. " + document.getElementById('historico-view').innerText 
-            : "Panorama. " + document.getElementById('dashboard-view').innerText;
         
+        // Leer texto visible
+        let texto = "";
+        if(!document.getElementById('dashboard-view').classList.contains('hidden')) {
+             texto = "Panorama. " + document.getElementById('dashboard-view').innerText;
+        } else {
+             // En histórico solo leemos los encabezados y las filas seleccionadas para no saturar
+             const seleccionadas = Array.from(state.selectedRows).length;
+             texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas para comparación.`;
+        }
+
         currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
+        
+        // Config voz
+        const voices = synth.getVoices();
+        const voz = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
+        if(voz) currentUtterance.voice = voz;
+
         currentUtterance.rate = 1;
         currentUtterance.onstart = () => { btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; btnTTS.classList.add('speaking-active'); };
         currentUtterance.onend = resetBotonTTS;
