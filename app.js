@@ -25,18 +25,28 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
+    // 1. CONFIGURACIÓN INICIAL: Desplegar hasta nivel 4 por defecto
+    // Esto significa que Nivel 1, 2 y 3 deben iniciar "Expandidos"
+    datosHacendarios.forEach(item => {
+        if (item.nivel < 4) {
+            state.expandedRows.add(item.id);
+        }
+    });
+
     initFilters();
     initAccessibility();
     renderDashboard();     
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Estilos dinámicos para selección y tour
+    // Estilos dinámicos
     const style = document.createElement('style');
     style.innerHTML = `
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
         .clickable-cell { cursor: pointer; }
         .clickable-cell:hover { background-color: rgba(0,0,0,0.05); }
+        /* Identación visual para el árbol */
+        .indent-icon { display: inline-block; width: 20px; text-align: center; margin-right: 5px; }
     `;
     document.head.appendChild(style);
 
@@ -54,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // INICIAR TOUR SI ES NECESARIO
     initTourSystem();
 });
 
@@ -68,7 +77,6 @@ function toggleRow(id) {
     } else {
         state.expandedRows.add(id);
     }
-    // Renderizamos manteniendo el filtro actual para ver los hijos
     const searchText = document.getElementById('searchInput').value;
     renderTable(searchText);
 }
@@ -216,7 +224,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA (FILTRADO JERÁRQUICO ARREGLADO)
+// 6. TABLA HISTÓRICA (ÁRBOL JERÁRQUICO COMPLETO)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -234,78 +242,63 @@ function renderTable(filterText = '') {
     tbody.innerHTML = '';
     if(tfoot) tfoot.innerHTML = ''; 
 
-    // --- LÓGICA DE FILTRADO INTELIGENTE ---
+    // --- LÓGICA DE ÁRBOL GENÉRICO ---
     let itemsVisibles = [];
-    let lastLevel4Id = null;
-    let lastLevel5Id = null;
     
-    // Banderas para saber si los padres coinciden con la búsqueda
-    let parentLevel4Matches = false;
-    let parentLevel5Matches = false;
+    // Diccionario para saber quién es el padre actual de cada nivel
+    let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
+    let parentMatches = { 1: false, 2: false, 3: false, 4: false, 5: false };
 
     datosHacendarios.forEach(item => {
+        // Actualizar referencia de padre para niveles inferiores
+        parentIds[item.nivel] = item.id;
+        
+        // Limpiar referencias de niveles más profundos (si entro a un nuevo nivel 2, borro los padres nivel 3 viejos)
+        for(let l = item.nivel + 1; l <= 6; l++) {
+            parentIds[l] = null;
+            parentMatches[l] = false;
+        }
+
         const matchesSelf = filterText === '' || item.concepto.toLowerCase().includes(filterText.toLowerCase());
+        parentMatches[item.nivel] = matchesSelf; // Guardo si este item coincide
 
-        // --- NIVEL 4 (PADRE PRINCIPAL) ---
-        if (item.nivel === 4) {
-            lastLevel4Id = item.id;
-            lastLevel5Id = null; // Reset sub-niveles
-            parentLevel4Matches = matchesSelf; // Guardamos si el padre coincide
-            
-            // Mostrar si coincide él mismo (o si no hay filtro)
-            if (matchesSelf) {
-                itemsVisibles.push(item);
-            }
-        } 
+        let isVisible = false;
 
-        // --- NIVEL 5 (HIJO) ---
-        else if (item.nivel === 5) {
-            lastLevel5Id = item.id;
-            parentLevel5Matches = matchesSelf;
-
-            const isExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+        // 1. NIVEL 1 (TOTAL): Siempre visible si no hay filtro, o si coincide
+        if (item.nivel === 1) {
+            isVisible = (filterText === '') || matchesSelf;
+        }
+        else {
+            // 2. NIVEL 2 EN ADELANTE:
+            // Obtener ID del padre inmediato
+            const parentId = parentIds[item.nivel - 1];
+            const parentMatchedFilter = parentMatches[item.nivel - 1]; // ¿El padre coincidió con la búsqueda?
             
-            // REGLA DE ORO: 
-            // 1. Si el padre está expandido -> MOSTRAR SIEMPRE (comportamiento normal).
-            // 2. Si el padre NO está expandido:
-            //    - Solo mostrar si el hijo coincide Y EL PADRE NO.
-            //    - Si el padre ya coincide (ej. buscaste "Tributarios"), ocultamos al hijo 
-            //      para que quede dentro de la carpeta y no duplicado afuera.
+            // Regla A: El padre está expandido -> Mostrar hijo (si no hay filtro o si hijo coincide)
+            const isParentExpanded = parentId && state.expandedRows.has(parentId);
             
-            if (isExpanded) {
-                itemsVisibles.push(item);
-            } else {
-                if (matchesSelf && !parentLevel4Matches && filterText !== '') {
-                    // Muestra hijos "huérfanos" (ej. buscas "IEPS", pero el padre es "Tributarios")
-                    itemsVisibles.push(item);
-                }
-                // Si matchesSelf es true PERO parentLevel4Matches es true, NO lo agregamos.
-                // El usuario debe expandir el padre.
-            }
-        } 
-
-        // --- NIVEL 6 (NIETO) ---
-        else if (item.nivel === 6) {
-            const isParentExpanded = lastLevel5Id && state.expandedRows.has(lastLevel5Id);
-            const isGrandParentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
-            
-            if (isGrandParentExpanded && isParentExpanded) {
-                itemsVisibles.push(item);
-            } else {
-                // Misma lógica: mostrar solo si es coincidencia única
-                if (matchesSelf && !parentLevel5Matches && filterText !== '') {
-                    itemsVisibles.push(item);
+            if (isParentExpanded) {
+                 // Si el padre está abierto, el hijo se ve.
+                 // EXCEPCIÓN: Si hay filtro, el hijo debe coincidir O el padre debe haber coincidido (contexto)
+                 if (filterText === '') isVisible = true;
+                 else if (matchesSelf) isVisible = true; // Hijo coincide
+                 else if (parentMatchedFilter) isVisible = true; // Padre coincidió, mostramos hijos para contexto
+            } 
+            else {
+                // Regla B: El padre NO está expandido
+                // Solo mostrar si el hijo coincide con la búsqueda (resultado huérfano)
+                // Y ocultar si el padre ya coincidió (para que quede agrupado)
+                if (matchesSelf && !parentMatchedFilter && filterText !== '') {
+                    isVisible = true;
                 }
             }
         }
-        
-        // --- NIVEL 1, 2, 3 (SUPERIORES) ---
-        else if (item.nivel < 4) {
-             if (matchesSelf) itemsVisibles.push(item);
+
+        if (isVisible) {
+            itemsVisibles.push(item);
         }
     });
 
-    // --- RENDERIZADO ---
     itemsVisibles.forEach(item => {
         const tr = document.createElement('tr');
         const isSelected = state.selectedRows.has(item.id);
@@ -317,18 +310,29 @@ function renderTable(filterText = '') {
         const fontWeight = item.nivel <= 4 ? '700' : '400';
         const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
         
+        // --- BOTONES DESPLEGABLES ---
+        // Asignamos desplegable a Niveles 2, 3, 4 y 5 (Asumiendo que 1 es raíz estática y 6 es hoja)
+        // Ojo: Nivel 1 también podría tener, pero suele ser el título. Vamos a dárselo a 2, 3, 4, 5.
         let conceptoHTML = '';
-        // Mostramos ícono [+] para niveles 4 y 5
-        if (item.nivel === 4 || item.nivel === 5) {
+        
+        const nivelesConHijos = [2, 3, 4, 5]; // Ajustable
+        
+        if (nivelesConHijos.includes(item.nivel)) {
             const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
             const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
             conceptoHTML = `
                 <div style="cursor:pointer; display:flex; align-items:center;">
-                    <i class="fas ${icon}" style="margin-right:8px; color:${iconColor};" onclick="toggleRow(${item.id})"></i>
+                    <div class="indent-icon" onclick="toggleRow(${item.id})">
+                        <i class="fas ${icon}" style="color:${iconColor};"></i>
+                    </div>
                     <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
                 </div>`;
         } else {
-            conceptoHTML = `<span style="cursor:pointer" onclick="toggleSelection(${item.id})">${item.concepto}</span>`;
+            // Niveles sin hijos (ej. Nivel 6 o Nivel 1 si así se desea)
+            conceptoHTML = `
+                <div style="cursor:pointer; display:flex; align-items:center;">
+                    <div class="indent-icon"></div> <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
+                </div>`;
         }
 
         tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${fontWeight}; color:${color}">${conceptoHTML}</td>`;
@@ -362,7 +366,6 @@ function switchView(viewName) {
     document.getElementById('historico-view').classList.add('hidden');
     document.getElementById(`${viewName}-view`).classList.remove('hidden');
 
-    // ACTIVAR TOUR SI ENTRA A HISTÓRICO Y NO LO HA VISTO
     if (viewName === 'historico') {
         checkAndStartTour();
     }
@@ -408,4 +411,75 @@ function initAccessibility() {
              texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas.`;
         }
 
-        currentUtterance = new SpeechSynthesis
+        currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
+        const voices = synth.getVoices();
+        const voz = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
+        if(voz) currentUtterance.voice = voz;
+
+        currentUtterance.rate = 1;
+        currentUtterance.onstart = () => { btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; btnTTS.classList.add('speaking-active'); };
+        currentUtterance.onend = resetBotonTTS;
+        synth.speak(currentUtterance);
+    });
+    function resetBotonTTS() { btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>'; btnTTS.classList.remove('speaking-active'); }
+}
+
+// --- TOUR DEMO ---
+let tourStep = 0;
+const tourSteps = [
+    { elementId: 'searchInput', title: '🔍 Búsqueda Profunda', text: 'Busca "Petroleros" y usa el botón [+] para ver su desglose interno.' },
+    { elementId: 'btn-real', title: '📊 Nominal vs Real', text: 'Cambia a valores reales para descontar la inflación.' },
+    { elementId: 'main-table', title: '🌲 Árbol Interactivo', text: 'Navega por niveles (2, 3, 4) y selecciona filas para compararlas.' },
+    { elementId: 'btnTTS', title: '🔊 Accesibilidad', text: 'Lectura de voz y ajuste de texto disponibles.' }
+];
+
+function initTourSystem() {
+    if (!document.getElementById('tour-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.id = 'tour-overlay';
+        overlay.className = 'tour-overlay';
+        overlay.innerHTML = `
+            <div id="tour-box" class="tour-box">
+                <div class="tour-title"><i class="fas fa-info-circle"></i> <span id="tour-title">Bienvenido</span></div>
+                <div id="tour-content" class="tour-content">Texto del tour</div>
+                <div class="tour-footer">
+                    <div id="tour-dots" class="tour-dots"></div>
+                    <div style="display:flex; gap:10px;">
+                        <button class="btn-tour btn-skip" onclick="endTour()">Omitir</button>
+                        <button class="btn-tour btn-next" onclick="nextStep()">Siguiente</button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+    }
+}
+function checkAndStartTour() { if (!localStorage.getItem('saip_tour_v2')) startTour(); } // Cambié versión a v2 para que te salga de nuevo
+function startTour() { tourStep = 0; document.getElementById('tour-overlay').style.display = 'block'; showStep(); }
+function showStep() {
+    const step = tourSteps[tourStep];
+    const el = document.getElementById(step.elementId);
+    document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step'));
+    if (el) {
+        el.classList.add('highlight-step');
+        const rect = el.getBoundingClientRect();
+        const box = document.getElementById('tour-box');
+        let top = rect.bottom + 15;
+        let left = rect.left;
+        if (left + 300 > window.innerWidth) left = window.innerWidth - 320;
+        if (top + 200 > window.innerHeight) top = rect.top - 200;
+        box.style.top = `${Math.max(10, top)}px`;
+        box.style.left = `${Math.max(10, left)}px`;
+    }
+    document.getElementById('tour-title').innerText = step.title;
+    document.getElementById('tour-content').innerText = step.text;
+    const dotsContainer = document.getElementById('tour-dots');
+    dotsContainer.innerHTML = '';
+    tourSteps.forEach((_, i) => {
+        const dot = document.createElement('div');
+        dot.className = `dot ${i === tourStep ? 'active' : ''}`;
+        dotsContainer.appendChild(dot);
+    });
+}
+function nextStep() { if (tourStep < tourSteps.length - 1) { tourStep++; showStep(); } else { endTour(); } }
+function endTour() { document.getElementById('tour-overlay').style.display = 'none'; document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step')); localStorage.setItem('saip_tour_v2', 'true'); }
+window.nextStep = nextStep; window.endTour = endTour;
