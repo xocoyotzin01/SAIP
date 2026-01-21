@@ -14,14 +14,32 @@
 </head>
 <body>
 
-   <nav class="navbar">
+<nav class="navbar">
+    <div class="nav-left">
+        <a href="https://xocoyotzin01.github.io/SADE/" class="btn-nav-icon" title="Regresar al SADE">
+            <i class="fas fa-arrow-left"></i>
+        </a>
         <div class="logo">
             <i class="fas fa-coins" style="margin-right: 10px;"></i> 
             <span>SAIP Ingresos</span>
         </div>
-        <button id="themeToggle" title="Cambiar Tema"><i class="fas fa-moon"></i></button>
-    </nav>
+    </div>
 
+    <div class="nav-controls">
+        <button class="btn-nav-text" id="btnDecreaseFont" title="Reducir Texto">A-</button>
+        <button class="btn-nav-text" id="btnIncreaseFont" title="Aumentar Texto">A+</button>
+        
+        <button class="btn-nav-icon" id="btnTTS" title="Leer contenido en voz alta">
+            <i class="fas fa-volume-up"></i>
+        </button>
+        
+        <div class="separator"></div>
+
+        <button id="themeToggle" class="btn-nav-icon" title="Cambiar Tema">
+            <i class="fas fa-moon"></i>
+        </button>
+    </div>
+</nav>
     <div id="dashboard-view" class="container">
         
         <div class="header-section">
@@ -119,4 +137,5 @@
     <script src="data.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>
