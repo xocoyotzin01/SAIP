@@ -19,6 +19,7 @@ let currentUtterance = null;
 // 2. INICIALIZACIÓN
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Verificación de seguridad
     if (typeof datosHacendarios === 'undefined') {
         console.error("Error: data.js no se ha cargado.");
         return;
@@ -30,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Inyectar estilos dinámicos para tablas
+    // Estilos dinámicos para selección y tour
     const style = document.createElement('style');
     style.innerHTML = `
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
@@ -53,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Inicializar el sistema de Tour (Demo)
+    // INICIAR TOUR SI ES NECESARIO
     initTourSystem();
 });
 
@@ -62,12 +63,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==========================================
 
 function toggleRow(id) {
-    // Evitamos propagación si hay selección activa
     if (state.expandedRows.has(id)) {
         state.expandedRows.delete(id);
     } else {
         state.expandedRows.add(id);
     }
+    // Renderizamos manteniendo el filtro actual para ver los hijos
     const searchText = document.getElementById('searchInput').value;
     renderTable(searchText);
 }
@@ -125,7 +126,7 @@ function renderDashboard() {
 
     if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
-    // Tabla Resumen Dashboard
+    // Tabla Resumen
     const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); 
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
@@ -215,7 +216,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA (CORREGIDA: FILTRO + EXPANSIÓN)
+// 6. TABLA HISTÓRICA (FILTRADO JERÁRQUICO ARREGLADO)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -233,53 +234,78 @@ function renderTable(filterText = '') {
     tbody.innerHTML = '';
     if(tfoot) tfoot.innerHTML = ''; 
 
-    // --- LÓGICA CORREGIDA ---
+    // --- LÓGICA DE FILTRADO INTELIGENTE ---
     let itemsVisibles = [];
     let lastLevel4Id = null;
     let lastLevel5Id = null;
+    
+    // Banderas para saber si los padres coinciden con la búsqueda
+    let parentLevel4Matches = false;
+    let parentLevel5Matches = false;
 
     datosHacendarios.forEach(item => {
-        // Rastrear Padres
-        if (item.nivel === 4) { lastLevel4Id = item.id; lastLevel5Id = null; }
-        if (item.nivel === 5) { lastLevel5Id = item.id; }
+        const matchesSelf = filterText === '' || item.concepto.toLowerCase().includes(filterText.toLowerCase());
 
-        let isVisible = false;
-        const matchesFilter = filterText === '' || item.concepto.toLowerCase().includes(filterText.toLowerCase());
-
-        // Reglas de Visibilidad
-        if (item.nivel <= 4) {
-            // Nivel 4 se ve si coincide con el filtro, O si no hay filtro
-            isVisible = matchesFilter; 
-        } 
-        else if (item.nivel === 5) {
-            // Nivel 5 se ve SI:
-            // 1. Su padre (Nivel 4) está expandido (PRIORIDAD AL CLICK)
-            // 2. Y (No hay filtro activo O el padre se mostró porque coincidía)
-            // Esto permite que si busco "Trib", sale el padre, y si doy click, salen los hijos aunque no digan "Trib"
-            const parentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+        // --- NIVEL 4 (PADRE PRINCIPAL) ---
+        if (item.nivel === 4) {
+            lastLevel4Id = item.id;
+            lastLevel5Id = null; // Reset sub-niveles
+            parentLevel4Matches = matchesSelf; // Guardamos si el padre coincide
             
-            if (parentExpanded) {
-                isVisible = true; // Si el padre está abierto, muestra al hijo SIEMPRE
-            } else if (matchesFilter && filterText !== '') {
-                isVisible = true; // Si el hijo coincide directo con la búsqueda
+            // Mostrar si coincide él mismo (o si no hay filtro)
+            if (matchesSelf) {
+                itemsVisibles.push(item);
             }
         } 
-        else if (item.nivel === 6) {
-            const parentExpanded = lastLevel5Id && state.expandedRows.has(lastLevel5Id);
-            const grandParentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+
+        // --- NIVEL 5 (HIJO) ---
+        else if (item.nivel === 5) {
+            lastLevel5Id = item.id;
+            parentLevel5Matches = matchesSelf;
+
+            const isExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
             
-            if (grandParentExpanded && parentExpanded) {
-                isVisible = true;
-            } else if (matchesFilter && filterText !== '') {
-                isVisible = true;
+            // REGLA DE ORO: 
+            // 1. Si el padre está expandido -> MOSTRAR SIEMPRE (comportamiento normal).
+            // 2. Si el padre NO está expandido:
+            //    - Solo mostrar si el hijo coincide Y EL PADRE NO.
+            //    - Si el padre ya coincide (ej. buscaste "Tributarios"), ocultamos al hijo 
+            //      para que quede dentro de la carpeta y no duplicado afuera.
+            
+            if (isExpanded) {
+                itemsVisibles.push(item);
+            } else {
+                if (matchesSelf && !parentLevel4Matches && filterText !== '') {
+                    // Muestra hijos "huérfanos" (ej. buscas "IEPS", pero el padre es "Tributarios")
+                    itemsVisibles.push(item);
+                }
+                // Si matchesSelf es true PERO parentLevel4Matches es true, NO lo agregamos.
+                // El usuario debe expandir el padre.
+            }
+        } 
+
+        // --- NIVEL 6 (NIETO) ---
+        else if (item.nivel === 6) {
+            const isParentExpanded = lastLevel5Id && state.expandedRows.has(lastLevel5Id);
+            const isGrandParentExpanded = lastLevel4Id && state.expandedRows.has(lastLevel4Id);
+            
+            if (isGrandParentExpanded && isParentExpanded) {
+                itemsVisibles.push(item);
+            } else {
+                // Misma lógica: mostrar solo si es coincidencia única
+                if (matchesSelf && !parentLevel5Matches && filterText !== '') {
+                    itemsVisibles.push(item);
+                }
             }
         }
-
-        if (isVisible) {
-            itemsVisibles.push(item);
+        
+        // --- NIVEL 1, 2, 3 (SUPERIORES) ---
+        else if (item.nivel < 4) {
+             if (matchesSelf) itemsVisibles.push(item);
         }
     });
 
+    // --- RENDERIZADO ---
     itemsVisibles.forEach(item => {
         const tr = document.createElement('tr');
         const isSelected = state.selectedRows.has(item.id);
@@ -291,8 +317,8 @@ function renderTable(filterText = '') {
         const fontWeight = item.nivel <= 4 ? '700' : '400';
         const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
         
-        // Icono de expansión
         let conceptoHTML = '';
+        // Mostramos ícono [+] para niveles 4 y 5
         if (item.nivel === 4 || item.nivel === 5) {
             const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
             const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
@@ -336,7 +362,7 @@ function switchView(viewName) {
     document.getElementById('historico-view').classList.add('hidden');
     document.getElementById(`${viewName}-view`).classList.remove('hidden');
 
-    // ACTIVAR TOUR SI ENTRA A HISTÓRICO POR PRIMERA VEZ
+    // ACTIVAR TOUR SI ENTRA A HISTÓRICO Y NO LO HA VISTO
     if (viewName === 'historico') {
         checkAndStartTour();
     }
@@ -382,137 +408,4 @@ function initAccessibility() {
              texto = `Tabla Histórica. Hay ${seleccionadas} filas seleccionadas.`;
         }
 
-        currentUtterance = new SpeechSynthesisUtterance(texto.replace(/\s+/g, ' ').substring(0,4000));
-        const voices = synth.getVoices();
-        const voz = voices.find(v => v.lang === 'es-MX') || voices.find(v => v.lang.includes('es'));
-        if(voz) currentUtterance.voice = voz;
-
-        currentUtterance.rate = 1;
-        currentUtterance.onstart = () => { btnTTS.innerHTML = '<i class="fas fa-stop"></i>'; btnTTS.classList.add('speaking-active'); };
-        currentUtterance.onend = resetBotonTTS;
-        synth.speak(currentUtterance);
-    });
-    function resetBotonTTS() { btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>'; btnTTS.classList.remove('speaking-active'); }
-}
-
-// --- LÓGICA DEL TOUR / DEMO ---
-let tourStep = 0;
-const tourSteps = [
-    {
-        elementId: 'searchInput',
-        title: '🔍 Búsqueda Inteligente',
-        text: 'Escribe conceptos clave como "ISR" o "Tributarios". Puedes expandir los resultados con el botón [+] para ver detalles.'
-    },
-    {
-        elementId: 'btn-real',
-        title: '📊 Deflactación Automática',
-        text: 'Cambia entre valores Nominales y Reales con un clic. El sistema ajusta la inflación automáticamente a precios de 2026.'
-    },
-    {
-        elementId: 'main-table', // Apunta a la tabla
-        title: '💡 Comparación Visual',
-        text: 'Haz clic en los números de cualquier fila para resaltarla en amarillo. ¡Selecciona varias filas lejanas para compararlas fácilmente!'
-    },
-    {
-        elementId: 'btnTTS', // Bocina
-        title: '🔊 Accesibilidad',
-        text: 'Usa las herramientas superiores para ajustar el tamaño de letra o escuchar el contenido en voz alta.'
-    }
-];
-
-function initTourSystem() {
-    // Crear HTML del Overlay si no existe
-    if (!document.getElementById('tour-overlay')) {
-        const overlay = document.createElement('div');
-        overlay.id = 'tour-overlay';
-        overlay.className = 'tour-overlay';
-        overlay.innerHTML = `
-            <div id="tour-box" class="tour-box">
-                <div class="tour-title">
-                    <i class="fas fa-info-circle"></i> <span id="tour-title">Bienvenido</span>
-                </div>
-                <div id="tour-content" class="tour-content">Texto del tour</div>
-                <div class="tour-footer">
-                    <div id="tour-dots" class="tour-dots"></div>
-                    <div style="display:flex; gap:10px;">
-                        <button class="btn-tour btn-skip" onclick="endTour()">Omitir</button>
-                        <button class="btn-tour btn-next" onclick="nextStep()">Siguiente</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(overlay);
-    }
-}
-
-function checkAndStartTour() {
-    // Verificar si ya vio el tour (usando localStorage)
-    if (!localStorage.getItem('saip_tour_v1')) {
-        startTour();
-    }
-}
-
-function startTour() {
-    tourStep = 0;
-    document.getElementById('tour-overlay').style.display = 'block';
-    showStep();
-}
-
-function showStep() {
-    const step = tourSteps[tourStep];
-    const el = document.getElementById(step.elementId);
-    
-    // Limpiar highlights previos
-    document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step'));
-
-    if (el) {
-        el.classList.add('highlight-step');
-        // Posicionar caja cerca del elemento (simple logic)
-        const rect = el.getBoundingClientRect();
-        const box = document.getElementById('tour-box');
-        
-        // Calcular posición (por defecto abajo, si no cabe arriba)
-        let top = rect.bottom + 15;
-        let left = rect.left;
-        
-        // Ajuste simple para que no se salga de pantalla
-        if (left + 300 > window.innerWidth) left = window.innerWidth - 320;
-        if (top + 200 > window.innerHeight) top = rect.top - 200;
-
-        box.style.top = `${Math.max(10, top)}px`;
-        box.style.left = `${Math.max(10, left)}px`;
-    }
-
-    // Actualizar Textos
-    document.getElementById('tour-title').innerText = step.title;
-    document.getElementById('tour-content').innerText = step.text;
-
-    // Actualizar Dots
-    const dotsContainer = document.getElementById('tour-dots');
-    dotsContainer.innerHTML = '';
-    tourSteps.forEach((_, i) => {
-        const dot = document.createElement('div');
-        dot.className = `dot ${i === tourStep ? 'active' : ''}`;
-        dotsContainer.appendChild(dot);
-    });
-}
-
-function nextStep() {
-    if (tourStep < tourSteps.length - 1) {
-        tourStep++;
-        showStep();
-    } else {
-        endTour();
-    }
-}
-
-function endTour() {
-    document.getElementById('tour-overlay').style.display = 'none';
-    document.querySelectorAll('.highlight-step').forEach(e => e.classList.remove('highlight-step'));
-    // Marcar como visto para no molestar más
-    localStorage.setItem('saip_tour_v1', 'true');
-}
-
-// Exponer funciones globales para los botones onclick del HTML inyectado
-window.nextStep = nextStep;
-window.endTour = endTour;
+        currentUtterance = new SpeechSynthesis
