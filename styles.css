@@ -142,4 +142,92 @@ td:first-child { text-align: left; }
 .toggle-switch { display: inline-flex; background: var(--bg); padding: 3px; border-radius: 6px; border: 1px solid var(--border); }
 .toggle-switch button { background: transparent; border: none; padding: 6px 15px; border-radius: 4px; font-size: 0.85rem; cursor: pointer; color: var(--text-light); }
 .toggle-switch button.active { background: white; color: var(--primary); font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
 [data-theme="dark"] .toggle-switch button.active { background: var(--primary); color: white; }
+
+/* --- NUEVOS ESTILOS PARA NAVEGACIÓN Y ACCESIBILIDAD --- */
+
+/* Ajuste del contenedor Nav para alinear grupos a la izq y der */
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+}
+
+.nav-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Estilos de botones de navegación (Iconos y Texto) */
+.btn-nav-icon, .btn-nav-text {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--gold); /* Usamos tu dorado institucional */
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none; /* Para el link <a> */
+}
+
+/* Tamaño para botones de iconos */
+.btn-nav-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+}
+
+/* Tamaño para botones de texto (A+ A-) */
+.btn-nav-text {
+    padding: 0 10px;
+    height: 36px;
+    font-weight: 700;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 0.9rem;
+    color: white;
+}
+
+.btn-nav-icon:hover, .btn-nav-text:hover {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: var(--gold);
+    transform: translateY(-2px);
+}
+
+/* Separador visual entre accesibilidad y tema */
+.separator {
+    width: 1px;
+    height: 24px;
+    background-color: rgba(255,255,255,0.3);
+    margin: 0 5px;
+}
+
+/* Estado activo para la bocinita */
+.speaking-active {
+    background-color: var(--gold) !important;
+    color: var(--primary) !important;
+    box-shadow: 0 0 10px rgba(212, 193, 156, 0.6);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+/* Ajustes Responsive */
+@media (max-width: 600px) {
+    .logo span { display: none; } /* Ocultar texto SAIP en móviles pequeños para dar espacio */
+    .btn-nav-text { padding: 0 8px; font-size: 0.8rem; }
+}
