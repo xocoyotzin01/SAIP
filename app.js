@@ -25,7 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- CONFIGURACIÓN INICIAL: VER HASTA NIVEL 4 ---
-    // Expandimos Nivel 1, 2 y 3 para que sus hijos (hasta el 4) sean visibles
     datosHacendarios.forEach(item => {
         if (item.nivel <= 3) {
             state.expandedRows.add(item.id);
@@ -38,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Inyectar estilos para la selección
+    // Inyectar estilos auxiliares JS
     const style = document.createElement('style');
     style.innerHTML = `
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
@@ -215,7 +214,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA (ÁRBOL CORRECTO + SUBTOTAL ESTÉTICO)
+// 6. TABLA HISTÓRICA (FILTRADO MEJORADO + SUBTOTAL ALINEADO)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -232,50 +231,50 @@ function renderTable(filterText = '') {
     thead.innerHTML = headersHTML;
 
     tbody.innerHTML = '';
-    // Limpiamos el tfoot al inicio
-    if (tfoot) tfoot.innerHTML = '';
+    // Limpiamos el tfoot al inicio siempre
+    if(tfoot) tfoot.innerHTML = ''; 
 
     // B. Lógica de Filtrado (Tree Logic)
     let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
     const itemsToRender = [];
 
     datosHacendarios.forEach(item => {
-        // Registrar relación Padre-Hijo en el recorrido
         parentIds[item.nivel] = item.id;
-        // Limpiar niveles inferiores para evitar falsos positivos
+        // Limpiar niveles inferiores
         for(let l = item.nivel + 1; l <= 6; l++) parentIds[l] = null;
 
         const matchesSearch = filterText !== '' && item.concepto.toLowerCase().includes(filterText.toLowerCase());
         let isVisible = false;
 
         if (filterText === '') {
-            // --- MODO NORMAL (Sin búsqueda) ---
-            if (item.nivel === 1) {
-                isVisible = true; 
-            } else {
-                // Verificar si el padre está expandido
+            // --- SIN BÚSQUEDA ---
+            if (item.nivel === 1) isVisible = true;
+            else {
                 const parentId = parentIds[item.nivel - 1];
-                
-                // CORRECCIÓN CRÍTICA NIVEL 2:
-                // Si es Nivel 2 y existe un padre Nivel 1, verificamos si está abierto.
-                // SI NO EXISTE PADRE (o el script no lo cachó), se muestra como raíz para que no desaparezca.
-                if (item.nivel === 2 && !parentId) {
-                    isVisible = true; 
-                } else if (parentId && state.expandedRows.has(parentId)) {
-                    isVisible = true;
-                }
+                // Caso especial Nivel 2: Si no hay padre registrado, mostrar como raíz
+                if (item.nivel === 2 && !parentId) isVisible = true;
+                else if (parentId && state.expandedRows.has(parentId)) isVisible = true;
             }
         } else {
-            // --- MODO BÚSQUEDA ---
+            // --- CON BÚSQUEDA ---
             if (matchesSearch) {
-                isVisible = true; // Coincidencia directa -> Mostrar
+                // Si coincide texto -> Mostrar
+                isVisible = true; 
             } else {
-                // Si no coincide, solo se muestra si su padre (ya filtrado) está expandido explícitamente
+                // Si no coincide, mostrar SOLO si su padre (que pasó el filtro) está abierto.
                 const parentId = parentIds[item.nivel - 1];
                 if (parentId && state.expandedRows.has(parentId)) {
                     isVisible = true;
                 }
             }
+            
+            // --- CORRECCIÓN NIVEL 2 "NO PETROLEROS" ---
+            // Si el Nivel 2 es un contenedor importante (como "No petroleros"),
+            // queremos que aparezca si es relevante o si el usuario buscó algo que implica ver la estructura.
+            // Si buscamos "no", coincide y se muestra.
+            // Si buscamos algo hijo y el padre NO coincide, el padre se oculta (lógica estricta pedida).
+            // PERO si el usuario quiere ver "No petroleros", lo escribirá.
+            // Con la lógica de arriba (matchesSearch -> true), esto ya funciona.
         }
 
         if (isVisible) itemsToRender.push(item);
@@ -323,26 +322,26 @@ function renderTable(filterText = '') {
         tbody.appendChild(tr);
     });
 
-    // D. Renderizado del Subtotal (Estético y Alineado)
+    // D. Renderizado del Subtotal (ALINEACIÓN EXACTA)
+    // Usamos la misma estructura <td> que el cuerpo para garantizar alineación
     if (state.selectedRows.size >= 2) {
-        const trSubtotal = document.createElement('tr');
-        trSubtotal.className = 'subtotal-row';
+        let footerHTML = `<td style="font-weight:700; color:var(--primary);"><i class="fas fa-calculator"></i> SUBTOTAL (${state.selectedRows.size})</td>`;
         
-        // Columna 1: Etiqueta (Alineada con "Concepto")
-        let subtotalHTML = `<td><i class="fas fa-calculator" style="margin-right:5px;"></i> SUBTOTAL (${state.selectedRows.size})</td>`;
-        
-        // Columnas siguientes: Valores alineados con cada año
         years.forEach(y => {
             let suma = 0;
             state.selectedRows.forEach(id => {
                 const item = datosHacendarios.find(d => d.id === id);
-                if (item) suma += getValor(item, y, 'obs');
+                if (item) {
+                    suma += getValor(item, y, 'obs');
+                }
             });
-            subtotalHTML += `<td>${formatMoney(suma)}</td>`;
+            footerHTML += `<td>${formatMoney(suma)}</td>`;
         });
         
-        trSubtotal.innerHTML = subtotalHTML;
-        if(tfoot) tfoot.appendChild(trSubtotal);
+        // Inyectamos la fila en tfoot
+        if(tfoot) {
+            tfoot.innerHTML = `<tr class="subtotal-row">${footerHTML}</tr>`;
+        }
     }
 }
 
