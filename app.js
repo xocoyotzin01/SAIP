@@ -8,8 +8,8 @@ let state = {
     endYear: 2026,
     baseYear: 2026,
     activeChart: 'Total',
-    expandedRows: new Set(), // Qué carpetas están abiertas
-    selectedRows: new Set()  // Qué filas están seleccionadas para suma
+    expandedRows: new Set(),
+    selectedRows: new Set()
 };
 
 let trendChartInstance = null;
@@ -24,11 +24,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // --- REGLA 1: ESTADO INICIAL ---
-    // Queremos ver del Nivel 1 al 4.
-    // Para ver el Nivel 4, los niveles 1, 2 y 3 deben estar "Abiertos" (Expanded).
+    // --- CONFIGURACIÓN INICIAL: VER HASTA NIVEL 4 ---
+    // Expandimos Nivel 1, 2 y 3 para que sus hijos (hasta el 4) sean visibles
     datosHacendarios.forEach(item => {
-        if (item.nivel < 4) { 
+        if (item.nivel <= 3) {
             state.expandedRows.add(item.id);
         }
     });
@@ -39,25 +38,13 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTrendChart(state.activeChart);    
     renderTable();         
     
-    // Estilos dinámicos (incluyendo estilo para Subtotal)
+    // Inyectar estilos para la selección
     const style = document.createElement('style');
     style.innerHTML = `
         .selected-row td { background-color: rgba(212, 193, 156, 0.4) !important; border-bottom: 1px solid var(--gold); }
         .clickable-cell { cursor: pointer; }
         .clickable-cell:hover { background-color: rgba(0,0,0,0.05); }
         .indent-icon { display: inline-block; width: 24px; text-align: center; margin-right: 5px; cursor: pointer; }
-        
-        /* Estilo fila Subtotal */
-        .subtotal-row td { 
-            background-color: #fff3cd !important; 
-            color: #856404; 
-            font-weight: 800; 
-            border-top: 2px solid var(--gold);
-        }
-        [data-theme="dark"] .subtotal-row td {
-            background-color: #3e3318 !important;
-            color: #d4c19c;
-        }
     `;
     document.head.appendChild(style);
 
@@ -79,14 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==========================================
 // 3. LÓGICA DE INTERACCIÓN
 // ==========================================
-
 function toggleRow(id) {
     if (state.expandedRows.has(id)) {
         state.expandedRows.delete(id);
     } else {
         state.expandedRows.add(id);
     }
-    // Al abrir/cerrar, mantenemos el texto del buscador
     const searchText = document.getElementById('searchInput').value;
     renderTable(searchText);
 }
@@ -144,6 +129,7 @@ function renderDashboard() {
 
     if (itemTributarios) crearTarjeta({ id: 'Tributarios', titulo: "Tributarios", valor: getValor(itemTributarios, currentYear, 'prog'), valorPrev: getValor(itemTributarios, prevYear, 'obs'), subtexto: "vs año anterior", icono: "fas fa-file-invoice-dollar", isActive: state.activeChart === 'Tributarios', macros: [{ label: "Tasa Int.", val: macroData.tasa_interes ? `${macroData.tasa_interes}%` : '-' }, { label: "Tipo Cambio", val: macroData.tipo_cambio ? `$${macroData.tipo_cambio}` : '-' }] }, kpiContainer);
 
+    // Tabla Resumen Dashboard
     const resumenItems = datosHacendarios.filter(d => d.nivel <= 3); 
     resumenItems.forEach(item => {
         const valNomPrev = getValorNominal(item, prevYear, 'obs');
@@ -184,9 +170,6 @@ function crearTarjeta(data, container) {
         </div>`;
 }
 
-// ==========================================
-// 5. GRÁFICOS
-// ==========================================
 function cambiarGrafico(conceptoId) {
     state.activeChart = conceptoId;
     renderDashboard();
@@ -197,7 +180,6 @@ function renderTrendChart(filtroConcepto) {
     const ctx = document.getElementById('trendChart');
     if(!ctx) return;
     let itemGraficar = datosHacendarios.find(d => d.nivel === 1); 
-    
     if (filtroConcepto === 'Petroleros') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('petroleros') && d.nivel <= 2);
     else if (filtroConcepto === 'Tributarios') itemGraficar = datosHacendarios.find(d => d.concepto.toLowerCase().includes('tributarios') && d.nivel <= 4);
 
@@ -233,7 +215,7 @@ function renderTrendChart(filtroConcepto) {
 }
 
 // ==========================================
-// 6. TABLA HISTÓRICA (LÓGICA LIMPIA Y SUBTOTALES)
+// 6. TABLA HISTÓRICA (ÁRBOL CORRECTO + SUBTOTAL ESTÉTICO)
 // ==========================================
 function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
@@ -242,7 +224,7 @@ function renderTable(filterText = '') {
     
     if(!thead || !tbody) return;
 
-    // Encabezados
+    // A. Encabezados
     let headersHTML = '<th>Concepto</th>';
     const years = [];
     for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
@@ -250,57 +232,56 @@ function renderTable(filterText = '') {
     thead.innerHTML = headersHTML;
 
     tbody.innerHTML = '';
-    
-    // Diccionario de padres para la jerarquía
-    let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
+    // Limpiamos el tfoot al inicio
+    if (tfoot) tfoot.innerHTML = '';
 
+    // B. Lógica de Filtrado (Tree Logic)
+    let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
     const itemsToRender = [];
-    
-    // --- LÓGICA DE FILTRADO Y VISIBILIDAD ---
+
     datosHacendarios.forEach(item => {
-        // Actualizamos quién es el padre del nivel actual
+        // Registrar relación Padre-Hijo en el recorrido
         parentIds[item.nivel] = item.id;
-        
+        // Limpiar niveles inferiores para evitar falsos positivos
+        for(let l = item.nivel + 1; l <= 6; l++) parentIds[l] = null;
+
+        const matchesSearch = filterText !== '' && item.concepto.toLowerCase().includes(filterText.toLowerCase());
         let isVisible = false;
-        
-        // REGLA 2: LÓGICA DE BÚSQUEDA Y ÁRBOL
-        const matchesText = filterText !== '' && item.concepto.toLowerCase().includes(filterText.toLowerCase());
 
         if (filterText === '') {
-            // -- MODO SIN BÚSQUEDA (ÁRBOL NORMAL) --
-            // Se ve si es Nivel 1
-            // O si su padre está en "expandedRows"
+            // --- MODO NORMAL (Sin búsqueda) ---
             if (item.nivel === 1) {
-                isVisible = true;
+                isVisible = true; 
             } else {
+                // Verificar si el padre está expandido
                 const parentId = parentIds[item.nivel - 1];
-                if (parentId && state.expandedRows.has(parentId)) {
+                
+                // CORRECCIÓN CRÍTICA NIVEL 2:
+                // Si es Nivel 2 y existe un padre Nivel 1, verificamos si está abierto.
+                // SI NO EXISTE PADRE (o el script no lo cachó), se muestra como raíz para que no desaparezca.
+                if (item.nivel === 2 && !parentId) {
+                    isVisible = true; 
+                } else if (parentId && state.expandedRows.has(parentId)) {
                     isVisible = true;
                 }
             }
         } else {
-            // -- MODO BÚSQUEDA --
-            // 1. Si coincide el texto -> SE VE (Agregado/Colapsado)
-            // 2. Si NO coincide, pero su padre está "Expanded" -> SE VE (Desglose manual)
-            // Esto cumple: "si pongo no tribu me de agregado solo los no tributarios y hasta que apriete el botón se desglose"
-            
-            if (matchesText) {
-                isVisible = true;
+            // --- MODO BÚSQUEDA ---
+            if (matchesSearch) {
+                isVisible = true; // Coincidencia directa -> Mostrar
             } else {
+                // Si no coincide, solo se muestra si su padre (ya filtrado) está expandido explícitamente
                 const parentId = parentIds[item.nivel - 1];
-                // Solo mostramos hijos si el usuario abrió explícitamente al padre
                 if (parentId && state.expandedRows.has(parentId)) {
                     isVisible = true;
                 }
             }
         }
 
-        if (isVisible) {
-            itemsToRender.push(item);
-        }
+        if (isVisible) itemsToRender.push(item);
     });
 
-    // --- RENDERIZADO DE FILAS ---
+    // C. Renderizado de Filas
     itemsToRender.forEach(item => {
         const tr = document.createElement('tr');
         const isSelected = state.selectedRows.has(item.id);
@@ -312,7 +293,6 @@ function renderTable(filterText = '') {
         const fontWeight = item.nivel <= 4 ? '700' : '400';
         const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
         
-        // Botones Desplegables (Nivel 1 al 5)
         let conceptoHTML = '';
         const levelsWithChildren = [1, 2, 3, 4, 5]; 
 
@@ -343,36 +323,31 @@ function renderTable(filterText = '') {
         tbody.appendChild(tr);
     });
 
-    // --- REGLA 3: SUBTOTALES ---
-    // Si hay 2 o más filas seleccionadas, calculamos la suma
-    if (tfoot) tfoot.innerHTML = ''; // Limpiar footer siempre
-    
+    // D. Renderizado del Subtotal (Estético y Alineado)
     if (state.selectedRows.size >= 2) {
         const trSubtotal = document.createElement('tr');
-        trSubtotal.className = 'subtotal-row'; // Clase para estilo amarillo
+        trSubtotal.className = 'subtotal-row';
         
-        let subtotalHTML = `<td>SUBTOTAL SELECCIÓN (${state.selectedRows.size} items)</td>`;
+        // Columna 1: Etiqueta (Alineada con "Concepto")
+        let subtotalHTML = `<td><i class="fas fa-calculator" style="margin-right:5px;"></i> SUBTOTAL (${state.selectedRows.size})</td>`;
         
+        // Columnas siguientes: Valores alineados con cada año
         years.forEach(y => {
             let suma = 0;
             state.selectedRows.forEach(id => {
                 const item = datosHacendarios.find(d => d.id === id);
-                if (item) {
-                    suma += getValor(item, y, 'obs');
-                }
+                if (item) suma += getValor(item, y, 'obs');
             });
             subtotalHTML += `<td>${formatMoney(suma)}</td>`;
         });
         
         trSubtotal.innerHTML = subtotalHTML;
-        
-        // Insertamos en el footer (hasta abajo)
-        if (tfoot) tfoot.appendChild(trSubtotal);
+        if(tfoot) tfoot.appendChild(trSubtotal);
     }
 }
 
 // ==========================================
-// 7. UTILS & SISTEMA DE TOUR (DEMO)
+// 7. UTILS & ACCESIBILIDAD
 // ==========================================
 function initFilters() {
     const startSel = document.getElementById('startYear');
