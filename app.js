@@ -213,6 +213,20 @@ function renderTrendChart(filtroConcepto) {
     });
 }
 
+
+// ==========================================
+// MAPA DE PADRES JERÁRQUICO
+// ==========================================
+const parentMap = {};
+(function buildParentMap() {
+    let stack = {};
+    datosHacendarios.forEach(item => {
+        stack[item.nivel] = item.id;
+        for (let i = item.nivel + 1; i <= 6; i++) delete stack[i];
+        parentMap[item.id] = stack[item.nivel - 1] ?? null;
+    });
+})();
+
 // ==========================================
 // 6. TABLA HISTÓRICA (FILTRADO MEJORADO + SUBTOTAL ALINEADO)
 // ==========================================
@@ -220,129 +234,94 @@ function renderTable(filterText = '') {
     const thead = document.getElementById('table-header');
     const tbody = document.getElementById('table-body');
     const tfoot = document.getElementById('table-footer');
-    
-    if(!thead || !tbody) return;
+    if (!thead || !tbody) return;
 
-    // A. Encabezados
+    // Encabezados
     let headersHTML = '<th>Concepto</th>';
     const years = [];
-    for(let y = state.startYear; y <= state.endYear; y++) years.push(y);
-    years.forEach(y => headersHTML += `<th>${y}</th>`);
-    thead.innerHTML = headersHTML;
-
-    tbody.innerHTML = '';
-    // Limpiamos el tfoot al inicio siempre
-    if(tfoot) tfoot.innerHTML = ''; 
-
-    // B. Lógica de Filtrado (Tree Logic)
-    let parentIds = { 1: null, 2: null, 3: null, 4: null, 5: null };
-    const itemsToRender = [];
-
-    datosHacendarios.forEach(item => {
-        parentIds[item.nivel] = item.id;
-        // Limpiar niveles inferiores
-        for(let l = item.nivel + 1; l <= 6; l++) parentIds[l] = null;
-
-        const matchesSearch = filterText !== '' && item.concepto.toLowerCase().includes(filterText.toLowerCase());
-        let isVisible = false;
-
-        if (filterText === '') {
-            // --- SIN BÚSQUEDA ---
-            if (item.nivel === 1) isVisible = true;
-            else {
-                const parentId = parentIds[item.nivel - 1];
-                // Caso especial Nivel 2: Si no hay padre registrado, mostrar como raíz
-                if (item.nivel === 2 && !parentId) isVisible = true;
-                else if (parentId && state.expandedRows.has(parentId)) isVisible = true;
-            }
-        } else {
-            // --- CON BÚSQUEDA ---
-            if (matchesSearch) {
-                // Si coincide texto -> Mostrar
-                isVisible = true; 
-            } else {
-                // Si no coincide, mostrar SOLO si su padre (que pasó el filtro) está abierto.
-                const parentId = parentIds[item.nivel - 1];
-                if (parentId && state.expandedRows.has(parentId)) {
-                    isVisible = true;
-                }
-            }
-            
-            // --- CORRECCIÓN NIVEL 2 "NO PETROLEROS" ---
-            // Si el Nivel 2 es un contenedor importante (como "No petroleros"),
-            // queremos que aparezca si es relevante o si el usuario buscó algo que implica ver la estructura.
-            // Si buscamos "no", coincide y se muestra.
-            // Si buscamos algo hijo y el padre NO coincide, el padre se oculta (lógica estricta pedida).
-            // PERO si el usuario quiere ver "No petroleros", lo escribirá.
-            // Con la lógica de arriba (matchesSearch -> true), esto ya funciona.
-        }
-
-        if (isVisible) itemsToRender.push(item);
-    });
-
-    // C. Renderizado de Filas
-    itemsToRender.forEach(item => {
-        const tr = document.createElement('tr');
-        const isSelected = state.selectedRows.has(item.id);
-        const isExpanded = state.expandedRows.has(item.id);
-
-        if (isSelected) tr.classList.add('selected-row');
-
-        const padding = `${(item.nivel-1)*20}px`;
-        const fontWeight = item.nivel <= 4 ? '700' : '400';
-        const color = item.nivel === 1 ? 'var(--primary)' : 'var(--text)';
-        
-        let conceptoHTML = '';
-        const levelsWithChildren = [1, 2, 3, 4, 5]; 
-
-        if (levelsWithChildren.includes(item.nivel)) {
-            const icon = isExpanded ? 'fa-minus-square' : 'fa-plus-square';
-            const iconColor = isExpanded ? 'var(--gold)' : '#ccc';
-            conceptoHTML = `
-                <div style="cursor:pointer; display:flex; align-items:center;">
-                    <div class="indent-icon" onclick="toggleRow(${item.id})">
-                        <i class="fas ${icon}" style="color:${iconColor};"></i>
-                    </div>
-                    <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
-                </div>`;
-        } else {
-            conceptoHTML = `
-                <div style="cursor:pointer; display:flex; align-items:center;">
-                    <div class="indent-icon"></div>
-                    <span onclick="toggleSelection(${item.id})">${item.concepto}</span>
-                </div>`;
-        }
-
-        tr.innerHTML = `<td style="padding-left:${padding}; font-weight:${fontWeight}; color:${color}">${conceptoHTML}</td>`;
-        
-        years.forEach(y => {
-            const val = getValor(item, y, 'obs');
-            tr.innerHTML += `<td class="clickable-cell" onclick="toggleSelection(${item.id})">${formatMoney(val)}</td>`;
-        });
-        tbody.appendChild(tr);
-    });
-
-    // D. Renderizado del Subtotal (ALINEACIÓN EXACTA)
-    // Usamos la misma estructura <td> que el cuerpo para garantizar alineación
-    if (state.selectedRows.size >= 2) {
-        let footerHTML = `<td style="font-weight:700; color:var(--primary);"><i class="fas fa-calculator"></i> SUBTOTAL (${state.selectedRows.size})</td>`;
-        
-        years.forEach(y => {
-            let suma = 0;
-            state.selectedRows.forEach(id => {
-                const item = datosHacendarios.find(d => d.id === id);
-                if (item) {
-                    suma += getValor(item, y, 'obs');
-                }
-            });
-            footerHTML += `<td>${formatMoney(suma)}</td>`;
-        });
-        
-        // Inyectamos la fila en tfoot
-        if(tfoot) {
-            tfoot.innerHTML = `<tr class="subtotal-row">${footerHTML}</tr>`;
-        }
+    for (let y = state.startYear; y <= state.endYear; y++) {
+        years.push(y);
+        headersHTML += `<th>${y}</th>`;
     }
+    thead.innerHTML = headersHTML;
+    tbody.innerHTML = '';
+    if (tfoot) tfoot.innerHTML = '';
+
+    const term = filterText.toLowerCase();
+    let visibleIds = new Set();
+
+    // ======================================
+    // A. SIN BÚSQUEDA → comportamiento original
+    // ======================================
+    if (!filterText) {
+        let parentIds = {};
+        datosHacendarios.forEach(item => {
+            parentIds[item.nivel] = item.id;
+            for (let i = item.nivel + 1; i <= 6; i++) delete parentIds[i];
+
+            let show = false;
+            if (item.nivel === 1) show = true;
+            else {
+                const pid = parentIds[item.nivel - 1];
+                if (pid && state.expandedRows.has(pid)) show = true;
+            }
+            if (show) visibleIds.add(item.id);
+        });
+    }
+
+    // ======================================
+    // B. CON BÚSQUEDA → lógica jerárquica correcta
+    // ======================================
+    else {
+        state.expandedRows.clear(); // cerrar todo
+
+        const matches = datosHacendarios.filter(d =>
+            d.concepto.toLowerCase().includes(term)
+        );
+
+        matches.forEach(m => {
+            let current = m;
+            let parent = parentMap[current.id];
+
+            while (parent !== null) {
+                const pItem = datosHacendarios.find(d => d.id === parent);
+                if (!pItem.concepto.toLowerCase().includes(term)) {
+                    visibleIds.add(parent);
+                    return;
+                }
+                current = pItem;
+                parent = parentMap[current.id];
+            }
+            visibleIds.add(current.id);
+        });
+    }
+
+    // ======================================
+    // C. Render filas
+    // ======================================
+    datosHacendarios.forEach(item => {
+        if (!visibleIds.has(item.id)) return;
+
+        const hasChildren = datosHacendarios.some(d => parentMap[d.id] === item.id);
+        const isOpen = state.expandedRows.has(item.id);
+
+        let row = `
+        <tr>
+            <td style="padding-left:${(item.nivel - 1) * 20}px; font-weight:${item.nivel <= 3 ? 700 : 400}">
+                ${hasChildren
+                    ? `<span class="indent-icon" onclick="toggleRow(${item.id})">${isOpen ? '▾' : '▸'}</span>`
+                    : '<span class="indent-icon"></span>'
+                }
+                ${item.concepto}
+            </td>`;
+
+        years.forEach(y => {
+            row += `<td>${formatMoney(getValor(item, y))}</td>`;
+        });
+
+        row += '</tr>';
+        tbody.insertAdjacentHTML('beforeend', row);
+    });
 }
 
 // ==========================================
@@ -416,3 +395,4 @@ function initAccessibility() {
     });
     function resetBotonTTS() { btnTTS.innerHTML = '<i class="fas fa-volume-up"></i>'; btnTTS.classList.remove('speaking-active'); }
 }
+
